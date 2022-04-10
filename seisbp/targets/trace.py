@@ -1,8 +1,7 @@
 from io import BytesIO
 import numpy as np
-import pickle
 
-from obspy import Trace, Stream
+from obspy import read as read_stream, Trace, Stream
 
 
 def check(item):
@@ -20,13 +19,17 @@ def check_key(key: str):
 
 def read(data: np.ndarray, header: bytes):
     with BytesIO(header) as b:
-        stats = pickle.load(b)
-        return Trace(data, stats)
+        tr = read_stream(b, format='sac')[0]
+        tr.stats.npts = len(data)
+        tr.data = data
+        return tr
 
 
 def write(item: Trace):
     with BytesIO() as b:
-        pickle.dump(item.stats, b)
+        tr = Trace(header=item.stats)
+        tr.stats.npts = 0
+        tr.write(b, format='sac')
         b.seek(0, 0)
         return item.data, np.frombuffer(b.read(), dtype=np.dtype('byte'))
 

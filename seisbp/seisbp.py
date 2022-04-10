@@ -20,9 +20,9 @@ class SeisBP:
 
     # adios2 binary pack file
     _bp: File
-    
-    # index of entries
-    _idx = {}
+
+    # index of all items
+    _idx: tp.Dict[str, tp.List[str]] = {}
 
     # file closed
     _closed = False
@@ -30,17 +30,26 @@ class SeisBP:
     @property
     def events(self) -> tp.List[str]:
         """Event list."""
-        return self._idx['_event'].split(',')[1:]
+        if self._mode != 'r':
+            raise PermissionError('file not opened in read mode')
+
+        return self._idx['event']
 
     @property
     def stations(self) -> tp.List[str]:
         """Station list."""
-        return self._idx['_station'].split(',')[1:]
+        if self._mode != 'r':
+            raise PermissionError('file not opened in read mode')
+
+        return self._idx['station']
     
     @property 
     def traces(self) -> tp.List[str]:
         """Trace list."""
-        return self._idx['_trace'].split(',')[1:]
+        if self._mode != 'r':
+            raise PermissionError('file not opened in read mode')
+
+        return self._idx['trace']
     
     @property
     def channels(self) -> tp.Dict[str, tp.List[str]]:
@@ -66,8 +75,14 @@ class SeisBP:
         self._bp = adios2.open(name, mode, comm) if comm else adios2.open(name, mode)
         self._mode = mode
 
-        for name in _targets:
-            self._idx[name] = self._bp.read(name).tostring().decode() if mode in ('r', 'a') else ''
+        if mode == 'r':
+            for name in _targets:
+                self._idx[name] = []
+            
+            for key in self._bp.available_variables():
+                for name, target in _targets.items():
+                    if target.check_key(key):
+                        self._idx[name].append(key)
 
     def __enter__(self):
         return self
@@ -90,7 +105,7 @@ class SeisBP:
         if self._mode not in ('w', 'a'):
             raise PermissionError('file not opened in write or append mode')
 
-        for name, target in _targets.items():
+        for target in _targets.values():
             if target.check(item):
                 try:
                     key = target.name(item)
@@ -107,7 +122,6 @@ class SeisBP:
                     self._bp.write(key, np.array([count]))
 
                     for i in range(count):
-                        print('>>>', data)
                         self._bp.write(f'{key}:{i}', data[i], count=data[i].shape)
 
                 else:
@@ -115,8 +129,6 @@ class SeisBP:
                         raise ValueError(f'{data} should have type numpy.ndarray')
 
                     self._bp.write(key, data, count=data.shape)
-                
-                self._idx[name] += ',' + key
 
                 return key
             
@@ -159,15 +171,12 @@ class SeisBP:
     def close(self):
         """Close file."""
         if not self._closed:
-            if self._mode in ('w', 'a'):
-                for name in _targets:
-                    self._bp.write(name, self._idx[name])
-
             self._bp.close()
             self._closed = True
 
 
 class _Target(tp.Protocol):
+    """Protocol of data that can be saved."""
     # Check if item belongs to this target
     check: tp.Callable[[tp.Any], bool]
 
@@ -191,6 +200,5 @@ class _Target(tp.Protocol):
 
 
 _targets: tp.Dict[str, _Target] = dict(zip(
-    ['_' + s for s in targets.__all__],
-    [getattr(targets, s) for s in targets.__all__]
+    targets.__all__, [getattr(targets, s) for s in targets.__all__]
 ))
