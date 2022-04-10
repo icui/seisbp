@@ -22,7 +22,7 @@ class SeisBP:
     _bp: File
 
     # index of all items
-    _idx: tp.Dict[str, tp.List[str]] = {}
+    _idx = {}
 
     # file closed
     _closed = False
@@ -54,6 +54,9 @@ class SeisBP:
     @property
     def channels(self) -> tp.Dict[str, tp.List[str]]:
         """Dictionary of station names -> trace channels."""
+        if 'channels' in self._idx:
+            return self._idx['channels']
+
         channels = {}
 
         for tr in self.traces:
@@ -64,6 +67,8 @@ class SeisBP:
                 channels[sta] = []
             
             channels[sta].append(f'{loc}.{cha}')
+        
+        self._idx['channels'] = channels
         
         return channels
 
@@ -167,6 +172,21 @@ class SeisBP:
                     return target.read(data)
         
         raise ValueError(f'unsupported key type: {key}')
+    
+    def stream(self, sta: str):
+        """Get Stream of a station."""
+        traces = []
+
+        for cha in self.channels[sta]:
+            traces.append(self.read(f'{sta}.{cha}'))
+        
+        return Stream(traces)
+    
+    def trace(self, sta: str, cmp: str):
+        """Get Trace of a station with channel or component code."""
+        for cha in self.channels[sta]:
+            if (len(cmp) == 1 and cha.endswith(cmp)) or cha.endswith(f'.{cmp}'):
+                return self.read(f'{sta}.{cha}')
 
     def close(self):
         """Close file."""

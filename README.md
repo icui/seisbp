@@ -24,14 +24,20 @@ Read
 from mpi4py.MPI import COMM_WORLD as comm  # optional
 
 with SeisBP('samle.bp', 'r', comm) as bp:
-   event = bp.read('C051200C')
-   station = bp.read('II.OBN')
-   trace = bp.read('II.OBN.MXZ')
+   # read data directly
+   event = bp.read('C051200C') # Event
+   station = bp.read('II.OBN')  # Inventory
+   trace = bp.read('II.OBN..MXZ')  # Trace
 
+   # get stream or trace directly
+   stream = bp.stream('II.OBN')
+   trace = bp.trace('II.OBN', 'E')
+
+   # get list of items
    bp.events  # ['C051200C']
-   bp.station  # ['II.OBN']
-   bp.traces  # ['II.OBN.MXZ']
-   bp.channels  # {'II.OBN': ['MXZ']}
+   bp.stations  # ['II.OBN']
+   bp.traces  # ['II.OBN..MXZ']
+   bp.channels  # {'II.OBN': ['.MXZ']}
 ```
 
 
@@ -50,4 +56,10 @@ def write(self, item: Stream | Trace | Catalog | Event | Inventory) -> str | Lis
 Read
 ```py
 def read(self, key: str) -> Trace | Event | Inventory: ...
+```
+
+Stream / Trace
+```py
+def stream(self, sta: str): ...
+def trace(self, sta: str, c: str): ...
 ```
