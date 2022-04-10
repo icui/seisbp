@@ -44,7 +44,7 @@ class SeisBP:
     
     @property
     def channels(self) -> tp.Dict[str, tp.List[str]]:
-        """Dictionary of station names -> trace channels"""
+        """Dictionary of station names -> trace channels."""
         channels = {}
 
         for tr in self.traces:
@@ -58,8 +58,12 @@ class SeisBP:
         
         return channels
 
-    def __init__(self, name: str, mode: tp.Literal['r', 'w', 'a'], comm: Intracomm | None = None):
-        self._bp = adios2.open(name, mode) if comm is None else adios2.open(name, mode, comm)
+    def __init__(self, name: str, mode: tp.Literal['r', 'w', 'a'], comm: Intracomm | bool = False):
+        if comm == True:
+            from mpi4py.MPI import COMM_WORLD
+            comm = COMM_WORLD
+
+        self._bp = adios2.open(name, mode, comm) if comm else adios2.open(name, mode)
         self._mode = mode
 
         for name in _targets:
