@@ -6,7 +6,7 @@ import numpy as np
 from obspy import Stream, Trace, Catalog, Inventory
 from obspy.core.event import Event
 
-from . import lib
+from . import targets
 
 if tp.TYPE_CHECKING:
     from adios2 import File
@@ -187,6 +187,6 @@ class _Target(tp.Protocol):
 
 
 _targets: tp.Dict[str, _Target] = dict(zip(
-    ['_' + s for s in lib.__all__],
-    [getattr(lib, s) for s in lib.__all__]
+    ['_' + s for s in targets.__all__],
+    [getattr(targets, s) for s in targets.__all__]
 ))
