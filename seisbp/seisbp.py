@@ -22,7 +22,7 @@ class SeisBP:
     _bp: File
 
     # index of all items
-    _idx = {}
+    _cache: dict = { '#keys': [], '$keys': [] }
 
     # file closed
     _closed = False
@@ -33,7 +33,7 @@ class SeisBP:
         if self._mode != 'r':
             raise PermissionError('file not opened in read mode')
 
-        return self._idx['event']
+        return self._cache['event']
 
     @property
     def stations(self) -> tp.List[str]:
@@ -41,7 +41,7 @@ class SeisBP:
         if self._mode != 'r':
             raise PermissionError('file not opened in read mode')
 
-        return self._idx['station']
+        return self._cache['station']
     
     @property 
     def traces(self) -> tp.List[str]:
@@ -49,13 +49,13 @@ class SeisBP:
         if self._mode != 'r':
             raise PermissionError('file not opened in read mode')
 
-        return self._idx['trace']
+        return self._cache['trace']
     
     @property
     def channels(self) -> tp.Dict[str, tp.List[str]]:
         """Dictionary of station names -> trace channels."""
-        if 'channels' in self._idx:
-            return self._idx['channels']
+        if '_channels' in self._cache:
+            return self._cache['_channels']
 
         channels = {}
 
@@ -68,9 +68,17 @@ class SeisBP:
             
             channels[sta].append(f'{loc}.{cha}')
         
-        self._idx['channels'] = channels
+        self._cache['_channels'] = channels
         
         return channels
+    
+    @property
+    def keys(self) -> tp.List[str]:
+        """List of saved arrays."""
+        if self._mode != 'r':
+            raise PermissionError('file not opened in read mode')
+
+        return self._cache['#keys'] + self._cache['$keys']
 
     def __init__(self, name: str, mode: tp.Literal['r', 'w', 'a'], comm: Intracomm | bool = False):
         if comm == True:
@@ -82,12 +90,19 @@ class SeisBP:
 
         if mode == 'r':
             for name in _targets:
-                self._idx[name] = []
+                self._cache[name] = []
             
             for key in self._bp.available_variables():
-                for name, target in _targets.items():
-                    if target.check_key(key):
-                        self._idx[name].append(key)
+                if key.startswith('#'):
+                    self._cache['#keys'].append(key[1:])
+                
+                elif key.startswith('$'):
+                    self._cache['$keys'].append(key[1:])
+                
+                else:
+                    for name, target in _targets.items():
+                        if target.check_key(key):
+                            self._cache[name].append(key)
 
     def __enter__(self):
         return self
@@ -187,6 +202,24 @@ class SeisBP:
         for cha in self.channels[sta]:
             if (len(cmp) == 1 and cha.endswith(cmp)) or cha.endswith(f'.{cmp}'):
                 return self.read(f'{sta}.{cha}')
+    
+    def put(self, key: str, val: np.ndarray | str):
+        """Save a numpy array or string."""
+        if isinstance(val, str):
+            self._bp.write(f'${key}', val)
+
+        else:
+            self._bp.write(f'#{key}', val, count=val.shape)
+    
+    def get(self, key: str):
+        """Get a numpy array or string."""
+        if key in self._cache['$keys']:
+            return self._bp.read(f'${key}')
+
+        elif key in self._cache['#keys']:
+            return self._bp.read(f'#{key}')
+        
+        raise KeyError(f'{key} is not a valid key')
 
     def close(self):
         """Close file."""

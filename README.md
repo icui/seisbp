@@ -17,6 +17,7 @@ with SeisBP('samle.bp', 'w', comm) as bp:
    bp.write(event)
    bp.write(station)
    bp.write(trace)
+   bp.put('array_data', trace.data)
 ```
 
 Read
@@ -28,6 +29,7 @@ with SeisBP('samle.bp', 'r', comm) as bp:
    event = bp.read('C051200C') # Event
    station = bp.read('II.OBN')  # Inventory
    trace = bp.read('II.OBN..MXZ')  # Trace
+   data = bp.get('array_data')  # numpy.ndarray
 
    # get stream or trace directly
    stream = bp.stream('II.OBN')
@@ -38,6 +40,7 @@ with SeisBP('samle.bp', 'r', comm) as bp:
    bp.stations  # ['II.OBN']
    bp.traces  # ['II.OBN..MXZ']
    bp.channels  # {'II.OBN': ['.MXZ']}
+   bp.keys  # ['array_data']
 ```
 
 
