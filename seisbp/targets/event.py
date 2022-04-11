@@ -20,7 +20,7 @@ def check_key(key: str):
 
 def read(data: bytes):
     with BytesIO(data) as b:
-        return read_events(b)
+        return read_events(b)[0]
 
 
 def write(item: Event):
