@@ -111,9 +111,6 @@ class SeisBP:
     def __exit__(self, *_):
         self.close()
         return False
-
-    def __del__(self):
-        self.close()
     
     @tp.overload
     def write(self, item: Stream | Catalog) -> tp.List[str]: ...
