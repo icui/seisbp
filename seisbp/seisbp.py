@@ -214,7 +214,7 @@ class SeisBP:
     def get(self, key: str):
         """Get a numpy array or string."""
         if key in self._cache['$keys']:
-            return self._bp.read(f'${key}')
+            return self._bp.read(f'${key}').tostring().decode()
 
         elif key in self._cache['#keys']:
             return self._bp.read(f'#{key}')
