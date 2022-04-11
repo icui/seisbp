@@ -22,7 +22,7 @@ class SeisBP:
     _bp: File
 
     # index of all items
-    _cache: dict = { '#keys': [], '$keys': [] }
+    _cache: dict
 
     # file closed
     _closed = False
@@ -85,6 +85,7 @@ class SeisBP:
             from mpi4py.MPI import COMM_WORLD
             comm = COMM_WORLD
 
+        self._cache = { '#keys': [], '$keys': [] }
         self._bp = adios2.open(name, mode, comm) if comm else adios2.open(name, mode)
         self._mode = mode
 
