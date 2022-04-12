@@ -21,6 +21,12 @@ class SeisBP:
     # adios2 binary pack file
     _bp: File
 
+    # size of the numpy arrays that awaits writting
+    _nbytes: int = 0
+
+    # maximum write size in MB before end_step
+    _buffer_size: float = 1024.0
+
     # index of all items
     _cache: dict
 
@@ -112,13 +118,23 @@ class SeisBP:
         self.close()
         return False
     
+    def _write(self, key: str, data: np.ndarray):
+        end_step = False
+        self._nbytes += data.nbytes
+
+        if self._nbytes >= self._buffer_size * 1024 ** 2:
+            end_step=True
+            self._nbytes = 0
+
+        self._bp.write(key, data, count=data.shape, end_step=end_step)
+    
     @tp.overload
-    def write(self, item: Stream | Catalog, end_step: bool = False) -> tp.List[str]: ...
+    def write(self, item: Stream | Catalog) -> tp.List[str]: ...
 
     @tp.overload
-    def write(self, item: Trace | Event | Inventory, end_step: bool = False) -> str: ...
+    def write(self, item: Trace | Event | Inventory) -> str: ...
 
-    def write(self, item: Stream | Trace | Catalog | Event | Inventory, end_step: bool = False) -> str | tp.List[str]:
+    def write(self, item: Stream | Trace | Catalog | Event | Inventory) -> str | tp.List[str]:
         """Add seismic data."""
         if self._mode not in ('w', 'a'):
             raise PermissionError('file not opened in write or append mode')
@@ -140,13 +156,13 @@ class SeisBP:
                     self._bp.write(key, np.array([count]))
 
                     for i in range(count):
-                        self._bp.write(f'{key}:{i}', data[i], count=data[i].shape, end_step=end_step and i==count-1)
+                        self._write(f'{key}:{i}', data[i])
 
                 else:
                     if isinstance(data, tuple):
                         raise ValueError(f'{data} should have type numpy.ndarray')
 
-                    self._bp.write(key, data, count=data.shape, end_step=end_step)
+                    self._write(key, data)
 
                 return key
             
@@ -201,13 +217,13 @@ class SeisBP:
             if (len(cmp) == 1 and cha.endswith(cmp)) or cha.endswith(f'.{cmp}'):
                 return self.read(f'{sta}.{cha}')
     
-    def put(self, key: str, val: np.ndarray | str, end_step: bool = False):
+    def put(self, key: str, val: np.ndarray | str):
         """Save a numpy array or string."""
         if isinstance(val, str):
-            self._bp.write(f'${key}', val, end_step=end_step)
+            self._bp.write(f'${key}', val)
 
         else:
-            self._bp.write(f'#{key}', val, count=val.shape, end_step=end_step)
+            self._write(f'#{key}', val)
     
     def get(self, key: str):
         """Get a numpy array or string."""
