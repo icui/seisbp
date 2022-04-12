@@ -113,12 +113,12 @@ class SeisBP:
         return False
     
     @tp.overload
-    def write(self, item: Stream | Catalog) -> tp.List[str]: ...
+    def write(self, item: Stream | Catalog, end_step: bool = False) -> tp.List[str]: ...
 
     @tp.overload
-    def write(self, item: Trace | Event | Inventory) -> str: ...
+    def write(self, item: Trace | Event | Inventory, end_step: bool = False) -> str: ...
 
-    def write(self, item: Stream | Trace | Catalog | Event | Inventory) -> str | tp.List[str]:
+    def write(self, item: Stream | Trace | Catalog | Event | Inventory, end_step: bool = False) -> str | tp.List[str]:
         """Add seismic data."""
         if self._mode not in ('w', 'a'):
             raise PermissionError('file not opened in write or append mode')
@@ -140,13 +140,13 @@ class SeisBP:
                     self._bp.write(key, np.array([count]))
 
                     for i in range(count):
-                        self._bp.write(f'{key}:{i}', data[i], count=data[i].shape)
+                        self._bp.write(f'{key}:{i}', data[i], count=data[i].shape, end_step=end_step and i==count-1)
 
                 else:
                     if isinstance(data, tuple):
                         raise ValueError(f'{data} should have type numpy.ndarray')
 
-                    self._bp.write(key, data, count=data.shape)
+                    self._bp.write(key, data, count=data.shape, end_step=end_step)
 
                 return key
             
@@ -201,13 +201,13 @@ class SeisBP:
             if (len(cmp) == 1 and cha.endswith(cmp)) or cha.endswith(f'.{cmp}'):
                 return self.read(f'{sta}.{cha}')
     
-    def put(self, key: str, val: np.ndarray | str):
+    def put(self, key: str, val: np.ndarray | str, end_step: bool = False):
         """Save a numpy array or string."""
         if isinstance(val, str):
-            self._bp.write(f'${key}', val)
+            self._bp.write(f'${key}', val, end_step=end_step)
 
         else:
-            self._bp.write(f'#{key}', val, count=val.shape)
+            self._bp.write(f'#{key}', val, count=val.shape, end_step=end_step)
     
     def get(self, key: str):
         """Get a numpy array or string."""
