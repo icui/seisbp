@@ -186,8 +186,25 @@ class SeisBP:
         
         raise ValueError(f'unsupported key type: {key}')
     
-    def stream(self, sta: str):
+    def event(self, evt: str) -> Event:
+        """Same as self.get(evt), added for consistency."""
+        if not _targets['event'].check_key(evt):
+            raise KeyError(f'{evt} is not an event name')
+
+        return self.get(evt)
+    
+    def station(self, sta: str) -> Inventory:
+        """Same as self.get(sta), added for consistency."""
+        if not _targets['station'].check_key(sta):
+            raise KeyError(f'{sta} is not an station name')
+
+        return self.get(sta)
+    
+    def stream(self, sta: str) -> Stream:
         """Get Stream of a station."""
+        if not _targets['station'].check_key(sta):
+            raise KeyError(f'{sta} is not an station name')
+
         traces = []
 
         for cha in self.channels[sta]:
@@ -195,11 +212,16 @@ class SeisBP:
         
         return Stream(traces)
     
-    def trace(self, sta: str, cmp: str):
+    def trace(self, sta: str, cmp: str) -> Trace:
         """Get Trace of a station with channel or component code."""
+        if not _targets['station'].check_key(sta):
+            raise KeyError(f'{sta} is not an station name')
+
         for cha in self.channels[sta]:
             if (len(cmp) == 1 and cha.endswith(cmp)) or cha.endswith(f'.{cmp}'):
-                return self.read(f'{sta}.{cha}')
+                return tp.cast(Trace, self.read(f'{sta}.{cha}'))
+        
+        raise KeyError(f'{sta}.{cmp} does not exist')
     
     def put(self, key: str, val: np.ndarray | str):
         """Save a numpy array or string."""

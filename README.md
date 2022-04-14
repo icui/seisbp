@@ -11,13 +11,13 @@ from obspy import read, read_events, read_inventory
 
 event = read_events('C051200C')
 station = read_inventory('II.OBN.xml')
-trace = read('II.OBN.MXZ.sac')
+trace = read('II.OBN.MXZ.sac')[0]
 
 with SeisBP('samle.bp', 'w', comm) as bp:
    bp.write(event)
    bp.write(station)
    bp.write(trace)
-   bp.put('array_data', trace.data)
+   bp.put('array_data', np.zeros([1,1,1]))
 ```
 
 Read
