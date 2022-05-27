@@ -8,7 +8,7 @@ from obspy import Stream, Trace, Catalog, Inventory
 from obspy.core.event import Event
 
 if tp.TYPE_CHECKING:
-    from adios2 import File
+    from adios2 import File # type: ignore
     from mpi4py.MPI import Intracomm
 
 
@@ -38,7 +38,7 @@ class SeisBP:
     # index of all auxiliary data
     _keys: tp.Set[str]
 
-    # MPI comm
+    # MPI communicator
     _comm: tp.Optional[Intracomm] = None
 
     # file closed
@@ -50,7 +50,7 @@ class SeisBP:
             comm = COMM_WORLD
 
         # open adios file
-        self._bp = adios2.open(name, mode, comm) if comm else adios2.open(name, mode)
+        self._bp = adios2.open(name, mode, comm) if comm else adios2.open(name, mode) # type: ignore
         self._mode = mode
         self._comm = comm or None
 
@@ -69,17 +69,21 @@ class SeisBP:
                 else:
                     # event, station or trace data
                     if key.endswith('#'):
+                        # skip trace meta data because it always binds to a trace data
                         continue
 
                     ndots = key.split(':')[0].count('.')
 
                     if ndots == 0:
+                        # event data
                         self._events.add(key)
                     
                     elif ndots == 1:
+                        # station data
                         self._stations.add(key)
                     
                     elif ndots == 3:
+                        # trace data
                         net, sta, loc, cha = key.split('.')
 
                         station = f'{net}.{sta}'
@@ -102,9 +106,6 @@ class SeisBP:
 
     @tp.overload
     def add(self, item: Trace | Event, tag: str | None = None) -> str: ...
-
-    @tp.overload
-    def add(self, item: tp.Tuple[str, np.ndarray, dict] | tp.Tuple[str, dict | np.ndarray], tag: str | None = None) -> str: ...
 
     def add(self, item: Stream | Trace | Catalog | Event | Inventory |
         tp.Tuple[str, np.ndarray, dict] | tp.Tuple[str, dict | np.ndarray], tag: str | None = None) -> str | tp.List[str]:
@@ -129,10 +130,44 @@ class SeisBP:
         if isinstance(item, Trace):
             return self._write_trace(item, tag)
         
-        if isinstance(item, tuple) and isinstance(item[0], str):
-            return self._write_auxiliary(item, tag)
-        
         raise TypeError(f'unsupported item {item}')
+    
+    def set(self, key: str, item: tp.Tuple[np.ndarray, dict] | dict | np.ndarray, tag: str | None = None):
+        """Set auxiliary data."""
+        key2 = key
+
+        if ':' in key:
+            raise KeyError('`:` is not allowed in data key')
+
+        if tag:
+            key2 += ':' + tag
+        
+        data: np.ndarray | None = None
+        aux: dict | None = None
+
+        if isinstance(item, tuple):
+            data = item[0]
+            aux = item[1]
+
+            if not isinstance(item[0], np.ndarray) or not isinstance(item[1], dict):
+                raise TypeError(f'unsupported item {item}')
+        
+        elif isinstance(item, np.ndarray):
+            data = item
+        
+        elif isinstance(item, dict):
+            aux = item
+        
+        else:
+            raise TypeError(f'unsupported item {item}')
+        
+        if data is not None:
+            self._write('$' + key2, data)
+        
+        if aux:
+            self._write('$' + key2 + '#', np.frombuffer(json.dumps(aux).encode(), dtype=np.dtype('byte')))
+
+        return key
 
     def events(self, tag: str | None = None) -> tp.List[str]:
         """List of event names."""
@@ -247,6 +282,7 @@ class SeisBP:
         return self.stream(station, tag)[0]
     
     def get(self, key: str, tag: str | None = None):
+        """Get auxiliary data."""
         if tag:
             key += ':' + tag
         
@@ -254,10 +290,10 @@ class SeisBP:
         pars = None
 
         if key in self._keys:
-            data = self._read_auxiliary(key)
+            data = self._bp.read(f'${key}')
         
         if f'{key}#' in self._keys:
-            pars = self._read_auxiliary(f'{key}#')
+            pars = json.loads(self._bp.read(f'${key}#').tobytes().decode())
         
         if data is not None and pars is not None:
             return data, pars
@@ -280,18 +316,22 @@ class SeisBP:
         if self._mode != 'r':
             raise PermissionError('file not opened in read mode')
 
-        keys = []
+        keys = set()
 
         for key in target:
+            if key.endswith('#'):
+                # notation for auxiliary parameters
+                key = key[:-1]
+
             if tag:
                 if key.endswith(':' + tag):
-                    keys.append(key.split(':')[0])
+                    keys.add(key.split(':')[0])
             
             else:
                 if ':' not in key:
-                    keys.append(key)
+                    keys.add(key)
         
-        return keys
+        return list(keys)
     
     def _write(self, key: str, data: np.ndarray):
         end_step = False
@@ -304,6 +344,7 @@ class SeisBP:
         self._bp.write(key, data, count=data.shape, end_step=end_step)
 
     def _write_event(self, item: Event, tag: str | None) -> str:
+        # event name
         key: str | None = None
 
         for d in item.event_descriptions:
@@ -313,6 +354,7 @@ class SeisBP:
         if key is None:
             raise ValueError(f'{item} does not have a valid name')
         
+        # event name with tag
         key2 = key
 
         if tag:
@@ -382,36 +424,3 @@ class SeisBP:
             stats = SACTrace.read(b, headonly=True).to_obspy_trace().stats
 
         return Trace(self._bp.read(key), stats)
-
-    def _write_auxiliary(self, item: tp.Tuple[str, np.ndarray, dict] | tp.Tuple[str, dict | np.ndarray], tag: str | None) -> str:
-        key = key2 = item[0]
-
-        if ':' in key:
-            raise KeyError('`:` is not allowed in data key')
-
-        if tag:
-            key2 += ':' + tag
-
-        aux: dict | None = None
-
-        if isinstance(item[1], np.ndarray):
-            self._write('$' + key, item[1])
-
-            if len(item) == 3:
-                aux = item[2]
-        
-        elif len(item) == 2:
-            aux = item[1]
-        
-        if aux:
-            self._write('$' + key2 + '#', np.frombuffer(json.dumps(aux).encode(), dtype=np.dtype('byte')))
-
-        return key
-    
-    def _read_auxiliary(self, key: str):
-        item = self._bp.read(key)
-
-        if key.endswith('#'):
-            return json.loads(item.tobytes().decode())
-        
-        return item
