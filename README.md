@@ -66,6 +66,7 @@ with SeisBP('samle.bp', 'r', comm) as bp:
    assert bp.trace('AZ.FRD') == bp.stream('AZ.FRD')[0]
    assert all(bp.trace('AZ.FRD').data == tr[0].data)
    assert all(bp.trace('AZ.FRD', None, 'tagged').data == tr_tagged[0].data)
+   assert all(bp.trace('AZ.FRD', 'Z', 'tagged').data == tr_tagged[0].data)
 
    # read auxiliary data
    assert all(bp.get('aux') == tr[0].data)
