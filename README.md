@@ -3,21 +3,39 @@
 A simple library to read and write seismic data using [ADIOS2](https://adios2.readthedocs.io/en/latest/index.html) binary pack format.
 
 
+### Run test
+Run from SeisBP base directory
+```py
+python -m seisbp.test
+```
+
+
 ### Usage
-Write
+Write (see ```seisbp/test_data```)
 ```py
 from mpi4py.MPI import COMM_WORLD as comm  # optional
 from obspy import read, read_events, read_inventory
 
-event = read_events('C051200C')
-station = read_inventory('II.OBN.xml')
-trace = read('II.OBN.MXZ.sac')[0]
+with SeisBP('test.bp', 'w') as bp:
+   # write event data
+   bp.add(read_events('C201107191935A'))
+   bp.add(read_events('C201107191935A.tagged'), 'tagged')
 
-with SeisBP('samle.bp', 'w', comm) as bp:
-   bp.write(event)
-   bp.write(station)
-   bp.write(trace)
-   bp.put('array_data', np.zeros([1,1,1]))
+   # write station data
+   bp.add(read_inventory('AZ.FRD.xml'))
+   bp.add(read_inventory('AZ.FRD.tagged.xml'), 'tagged')
+
+   # write trace data
+   tr = read('AZ.GRD.BHZ.sac')
+   tr_tagged = read('AZ.GRD.BHZ.tagged.sac')
+
+   bp.add(tr)
+   bp.add(tr_tagged, 'tagged')
+
+   # write auxiliary data
+   bp.set('aux', tr[0].data)
+   bp.set('aux2', {'tagged': False})
+   bp.set('aux', (tr_tagged[0].data, {'tagged': True}), 'tagged')
 ```
 
 Read
@@ -25,44 +43,35 @@ Read
 from mpi4py.MPI import COMM_WORLD as comm  # optional
 
 with SeisBP('samle.bp', 'r', comm) as bp:
-   # read data directly
-   event = bp.read('C051200C') # Event
-   station = bp.read('II.OBN')  # Inventory
-   trace = bp.read('II.OBN..MXZ')  # Trace
-   data = bp.get('array_data')  # numpy.ndarray
+   # read indexing
+   assert bp.events() == bp.events('tagged') == ['C201107191935A']
+   assert bp.stations() == bp.stations('tagged') == ['AZ.FRD']
+   assert bp.streams() == bp.streams('tagged') == ['AZ.FRD']
+   assert bp.traces() == bp.traces('tagged') == ['AZ.FRD..BHZ']
+   assert set(bp.keys()) == set(('aux', 'aux2'))
+   assert bp.keys('tagged') == ['aux']
 
-   # get stream or trace directly
-   stream = bp.stream('II.OBN')
-   trace = bp.trace('II.OBN', 'E')
+   # read event data
+   assert bp.event('C201107191935A') == read_events('C201107191935A')[0]
+   assert bp.event('C201107191935A', 'tagged') == read_events('C201107191935A.tagged')[0]
 
-   # get list of items
-   bp.events  # ['C051200C']
-   bp.stations  # ['II.OBN']
-   bp.traces  # ['II.OBN..MXZ']
-   bp.channels  # {'II.OBN': ['.MXZ']}
-   bp.keys  # ['array_data']
-```
+   # read station data
+   assert bp.station('AZ.FRD') == read_inventory('AZ.FRD.xml')
+   assert bp.station('AZ.FRD', 'tagged') == read_inventory('AZ.FRD.tagged.xml')
 
+   # read trace data
+   tr = read('AZ.GRD.BHZ.sac')
+   tr_tagged = read('AZ.GRD.BHZ.tagged.sac')
 
-### API
-Write
-```py
-@overload
-def write(self, item: Stream | Catalog) -> List[str]: ...
+   assert bp.trace('AZ.FRD') == bp.stream('AZ.FRD')[0]
+   assert all(bp.trace('AZ.FRD').data == tr[0].data)
+   assert all(bp.trace('AZ.FRD', None, 'tagged').data == tr_tagged[0].data)
+   assert all(bp.trace('AZ.FRD', 'Z', 'tagged').data == tr_tagged[0].data)
 
-@overload
-def write(self, item: Trace | Event | Inventory) -> str: ...
+   # read auxiliary data
+   assert all(bp.get('aux') == tr[0].data)
+   assert bp.get('aux2') == {'tagged': False}
 
-def write(self, item: Stream | Trace | Catalog | Event | Inventory) -> str | List[str]: ...
-```
-
-Read
-```py
-def read(self, key: str) -> Trace | Event | Inventory: ...
-```
-
-Stream / Trace
-```py
-def stream(self, sta: str): ...
-def trace(self, sta: str, c: str): ...
+   assert all(bp.get('aux', 'tagged')[0] == tr_tagged[0].data)
+   assert bp.get('aux', 'tagged')[1] == {'tagged': True}
 ```

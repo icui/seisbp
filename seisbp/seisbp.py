@@ -1,15 +1,14 @@
 from __future__ import annotations
-import adios2
 import typing as tp
+import adios2, json
+from io import BytesIO
 
 import numpy as np
 from obspy import Stream, Trace, Catalog, Inventory
 from obspy.core.event import Event
 
-from . import targets
-
 if tp.TYPE_CHECKING:
-    from adios2 import File
+    from adios2 import File # type: ignore
     from mpi4py.MPI import Intracomm
 
 
@@ -27,89 +26,73 @@ class SeisBP:
     # maximum write size in MB before end_step
     _buffer_size: float = 1024.0
 
-    # index of all items
-    _cache: dict
+    # index of all events
+    _events: tp.Set[str]
+
+    # index of all stations
+    _stations: tp.Set[str]
+
+    # index of all traces
+    _traces: tp.Dict[str, tp.Set[str]]
+
+    # index of all auxiliary data
+    _keys: tp.Set[str]
+
+    # MPI communicator
+    _comm: tp.Optional[Intracomm] = None
 
     # file closed
     _closed = False
-
-    @property
-    def events(self) -> tp.List[str]:
-        """Event list."""
-        if self._mode != 'r':
-            raise PermissionError('file not opened in read mode')
-
-        return self._cache['event']
-
-    @property
-    def stations(self) -> tp.List[str]:
-        """Station list."""
-        if self._mode != 'r':
-            raise PermissionError('file not opened in read mode')
-
-        return self._cache['station']
-    
-    @property 
-    def traces(self) -> tp.List[str]:
-        """Trace list."""
-        if self._mode != 'r':
-            raise PermissionError('file not opened in read mode')
-
-        return self._cache['trace']
-    
-    @property
-    def channels(self) -> tp.Dict[str, tp.List[str]]:
-        """Dictionary of station names -> trace channels."""
-        if '_channels' in self._cache:
-            return self._cache['_channels']
-
-        channels = {}
-
-        for tr in self.traces:
-            net, sta, loc, cha = tr.split('.')
-            sta = f'{net}.{sta}'
-            
-            if sta not in channels:
-                channels[sta] = []
-            
-            channels[sta].append(f'{loc}.{cha}')
-        
-        self._cache['_channels'] = channels
-        
-        return channels
-    
-    @property
-    def keys(self) -> tp.List[str]:
-        """List of saved arrays."""
-        if self._mode != 'r':
-            raise PermissionError('file not opened in read mode')
-
-        return self._cache['#keys'] + self._cache['$keys']
 
     def __init__(self, name: str, mode: tp.Literal['r', 'w', 'a'], comm: Intracomm | bool = False):
         if comm == True:
             from mpi4py.MPI import COMM_WORLD
             comm = COMM_WORLD
 
-        self._cache = { '#keys': [], '$keys': [] }
-        self._bp = adios2.open(name, mode, comm) if comm else adios2.open(name, mode)
+        # open adios file
+        self._bp = adios2.open(name, mode, comm) if comm else adios2.open(name, mode) # type: ignore
         self._mode = mode
+        self._comm = comm or None
 
+        # create indices in read mode
         if mode == 'r':
-            for name in _targets:
-                self._cache[name] = []
-            
+            self._events = set()
+            self._stations = set()
+            self._traces = {}
+            self._keys = set()
+
             for key in self._bp.available_variables():
-                if key.startswith('#'):
-                    self._cache['#keys'].append(key[1:])
-                
-                elif key.startswith('$'):
-                    self._cache['$keys'].append(key[1:])
+                if key.startswith('$'):
+                    # auxiliary data
+                    self._keys.add(key[1:])
                 
                 else:
-                    for name, target in _targets.items():
-                        if target.check_key(key):
-                            self._cache[name].append(key)
+                    # event, station or trace data
+                    if key.endswith('#'):
+                        # skip trace meta data because it always binds to a trace data
+                        continue
+
+                    ndots = key.split(':')[0].count('.')
+
+                    if ndots == 0:
+                        # event data
+                        self._events.add(key)
+                    
+                    elif ndots == 1:
+                        # station data
+                        self._stations.add(key)
+                    
+                    elif ndots == 3:
+                        # trace data
+                        net, sta, loc, cha = key.split('.')
+
+                        station = f'{net}.{sta}'
+                        channel = f'{loc}.{cha}'
+
+                        if station not in self._traces:
+                            self._traces[station] = set()
+                        
+                        self._traces[station].add(channel)
 
     def __enter__(self):
         return self
@@ -117,6 +100,237 @@ class SeisBP:
     def __exit__(self, *_):
         self.close()
         return False
+    
+    @tp.overload
+    def add(self, item: Stream | Catalog | Inventory, tag: str | None = None) -> tp.List[str]: ...
+
+    @tp.overload
+    def add(self, item: Trace | Event, tag: str | None = None) -> str: ...
+
+    def add(self, item: Stream | Trace | Catalog | Event | Inventory, tag: str | None = None) -> str | tp.List[str]:
+        """Add seismic data."""
+        if self._mode not in ('w', 'a'):
+            raise PermissionError('file not opened in write or append mode')
+        
+        if isinstance(item, (Stream, Catalog)):
+            keys = []
+
+            for it in item:
+                keys.append(self.add(it, tag))
+            
+            return keys
+        
+        if isinstance(item, Event):
+            return self._write_event(item, tag)
+        
+        if isinstance(item, Inventory):
+            return self._write_station(item, tag)
+        
+        if isinstance(item, Trace):
+            return self._write_trace(item, tag)
+        
+        raise TypeError(f'unsupported item {item}')
+    
+    def put(self, key: str, item: tp.Tuple[np.ndarray, dict] | dict | np.ndarray, tag: str | None = None):
+        """Set auxiliary data."""
+        key2 = key
+
+        if ':' in key:
+            raise KeyError('`:` is not allowed in data key')
+
+        if tag:
+            key2 += ':' + tag
+        
+        data: np.ndarray | None = None
+        aux: dict | None = None
+
+        if isinstance(item, tuple):
+            data = item[0]
+            aux = item[1]
+
+            if not isinstance(item[0], np.ndarray) or not isinstance(item[1], dict):
+                raise TypeError(f'unsupported item {item}')
+        
+        elif isinstance(item, np.ndarray):
+            data = item
+        
+        elif isinstance(item, dict):
+            aux = item
+        
+        else:
+            raise TypeError(f'unsupported item {item}')
+        
+        if data is not None:
+            self._write('$' + key2, data)
+        
+        if aux:
+            self._write('$' + key2 + '#', np.frombuffer(json.dumps(aux).encode(), dtype=np.dtype('byte')))
+
+        return key
+
+    def events(self, tag: str | None = None) -> tp.List[str]:
+        """List of event names."""
+        return self._list(self._events, tag)
+
+    def stations(self, tag: str | None = None) -> tp.List[str]:
+        """List of station names with StationXML."""
+        return self._list(self._stations, tag)
+    
+    def streams(self, tag: str | None = None) -> tp.List[str]:
+        """List of station names with traces."""
+        if self._mode != 'r':
+            raise PermissionError('file not opened in read mode')
+
+        stations = []
+
+        for sta, chas in self._traces.items():
+            for cha in chas:
+                if tag:
+                    if cha.endswith(':' + tag):
+                        stations.append(sta)
+                        continue
+                
+                else:
+                    if ':' not in cha:
+                        stations.append(sta)
+                        continue
+        
+        return stations
+    
+    def traces(self, tag: str | None = None) -> tp.List[str]:
+        """List of trace IDs."""
+        if self._mode != 'r':
+            raise PermissionError('file not opened in read mode')
+
+        traces = []
+
+        for sta, chas in self._traces.items():
+            for cha in chas:
+                if tag:
+                    if cha.endswith(':' + tag):
+                        traces.append(f'{sta}.{cha.split(":")[0]}')
+                
+                else:
+                    if ':' not in cha:
+                        traces.append(f'{sta}.{cha}')
+        
+        return traces
+    
+    def keys(self, tag: str | None = None) -> tp.List[str]:
+        """List of auxiliary data keys."""
+        return self._list(self._keys, tag)
+    
+    def event(self, event: str, tag: str | None = None) -> Event:
+        if tag:
+            event += ':' + tag
+        
+        return self._read_event(event)
+
+    def station(self, station: str, tag: str | None = None) -> Inventory:
+        if tag:
+            station += ':' + tag
+        
+        return self._read_station(station)
+
+    def stream(self, station: str, tag: str | None = None) -> Stream:
+        traces = []
+
+        for cha in self._traces[station]:
+            if tag:
+                if not cha.endswith(':' + tag):
+                        continue
+            
+            else:
+                if ':' in cha:
+                    continue
+            
+            traces.append(self._read_trace(f'{station}.{cha}'))
+        
+        if len(traces) == 0:
+            raise KeyError(f'{station} not found')
+        
+        return Stream(traces)
+
+    def trace(self, station: str, cmp: str | None = None, tag: str | None = None) -> Trace:
+        if cmp:
+            for cha in self._traces[station]:
+                if tag:
+                    if not cha.endswith(':' + tag):
+                        continue
+
+                    cha = cha.split(':')[0]
+                
+                else:
+                    if ':' in cha:
+                        continue
+
+                if len(cmp) == 1:
+                    if cha[-1] != cmp:
+                        continue
+                
+                elif cha != cmp:
+                    continue
+
+                if tag:
+                    cha += ':' + tag
+
+                return self._read_trace(f'{station}.{cha}')
+            
+            raise KeyError(f'trace {station}.{cmp} not found')
+        
+        return self.stream(station, tag)[0]
+    
+    def get(self, key: str, tag: str | None = None):
+        """Get auxiliary data."""
+        if tag:
+            key += ':' + tag
+        
+        data = None
+        pars = None
+
+        if key in self._keys:
+            data = self._bp.read(f'${key}')
+        
+        if f'{key}#' in self._keys:
+            pars = json.loads(self._bp.read(f'${key}#').tobytes().decode())
+        
+        if data is not None and pars is not None:
+            return data, pars
+        
+        if data is not None:
+            return data
+        
+        if pars is not None:
+            return pars
+        
+        raise KeyError(f'{key} not found')
+
+    def close(self):
+        """Close file."""
+        if not self._closed:
+            self._bp.close()
+            self._closed = True
+    
+    def _list(self, target: tp.Set[str], tag: str | None) -> tp.List[str]:
+        if self._mode != 'r':
+            raise PermissionError('file not opened in read mode')
+
+        keys = set()
+
+        for key in target:
+            if key.endswith('#'):
+                # notation for auxiliary parameters
+                key = key[:-1]
+
+            if tag:
+                if key.endswith(':' + tag):
+                    keys.add(key.split(':')[0])
+            
+            else:
+                if ':' not in key:
+                    keys.add(key)
+        
+        return list(keys)
     
     def _write(self, key: str, data: np.ndarray):
         end_step = False
@@ -127,167 +341,85 @@ class SeisBP:
             self._nbytes = 0
 
         self._bp.write(key, data, count=data.shape, end_step=end_step)
+
+    def _write_event(self, item: Event, tag: str | None) -> str:
+        # event name
+        key: str | None = None
+
+        for d in item.event_descriptions:
+            if d.type ==  'earthquake name':
+                key = d.text
+        
+        if key is None:
+            raise ValueError(f'{item} does not have a valid name')
+        
+        # event name with tag
+        key2 = key
+
+        if tag:
+            key2 += ':' + tag
+
+        with BytesIO() as b:
+            item.write(b, format='quakeml')
+            b.seek(0, 0)
+            self._write(key2, np.frombuffer(b.read(), dtype=np.dtype('byte')))
+        
+        return key
     
-    @tp.overload
-    def write(self, item: Stream | Catalog) -> tp.List[str]: ...
+    def _read_event(self, key: str) -> Event:
+        from obspy import read_events
 
-    @tp.overload
-    def write(self, item: Trace | Event | Inventory) -> str: ...
+        with BytesIO(self._bp.read(key)) as b:
+            return read_events(b, format='quakeml')[0]
 
-    def write(self, item: Stream | Trace | Catalog | Event | Inventory) -> str | tp.List[str]:
-        """Add seismic data."""
-        if self._mode not in ('w', 'a'):
-            raise PermissionError('file not opened in write or append mode')
+    def _write_station(self, item: Inventory, tag: str | None) -> tp.List[str]:
+        if len(item.networks) != 1 or len(item.networks[0].stations) != 1:
+            keys = []
 
-        for target in _targets.values():
-            if target.check(item):
-                try:
-                    key = target.name(item)
-                
-                except:
-                    raise ValueError(f'{item} does not have a valid name')
-
-                data = target.write(item)
-                
-                if target.count and (count := target.count(item)):
-                    if not isinstance(data, tuple):
-                        raise ValueError(f'{data} should be a tuple of {count}')
-                    
-                    self._bp.write(key, np.array([count]))
-
-                    for i in range(count):
-                        self._write(f'{key}:{i}', data[i])
-
-                else:
-                    if isinstance(data, tuple):
-                        raise ValueError(f'{data} should have type numpy.ndarray')
-
-                    self._write(key, data)
-
-                return key
+            for net in item.networks:
+                for sta in net.stations:
+                    keys += self._write_station(item.select(net.code, sta.code), tag)
             
-            elif target.check_group and target.check_group(item):
-                return [tp.cast(str, self.write(i)) for i in item]
+            return keys
         
-        raise ValueError(f'unsupported data type: {item}')
+        key = key2 = f'{item.networks[0].code}.{item.networks[0].stations[0].code}'
+
+        if tag:
+            key2 += ':' + tag
+
+        with BytesIO() as b:
+            item.write(b, format='stationxml')
+            b.seek(0, 0)
+            self._write(key2, np.frombuffer(b.read(), dtype=np.dtype('byte')))
+
+        return [key]
     
-    def read(self, key: str) -> Trace | Event | Inventory:
-        """Read seismic data."""
-        if self._mode != 'r':
-            raise PermissionError('file not opened in read mode')
+    def _read_station(self, key: str) -> Inventory:
+        from obspy import read_inventory
 
-        for target in _targets.values():
-            if target.check_key(key):
-                if target.count:
-                    count = int(self._bp.read(key))
+        with BytesIO(self._bp.read(key)) as b:
+            return read_inventory(b)
 
-                    if not isinstance(count, int):
-                        raise KeyError(f'{key} does not exist')
+    def _write_trace(self, item: Trace, tag: str | None) -> str:
+        from obspy.io.sac import SACTrace
 
-                    args = []
+        key = key2 = f'{item.stats.network}.{item.stats.station}.{item.stats.location}.{item.stats.channel}'
 
-                    for i in range(count):
-                        if len(data := self._bp.read(f'{key}:{i}')) == 0:
-                            raise KeyError(f'{key} does not exist')
+        if tag:
+            key2 += ':' + tag
 
-                        args.append(data)
-                    
-                    return target.read(*args)
-                
-                else:
-                    if len(data := self._bp.read(key)) == 0:
-                        raise KeyError(f'{key} does not exist')
+        with BytesIO() as b:
+            SACTrace.from_obspy_trace(item).write(b, headonly=True)
+            b.seek(0, 0)
+            self._write(key2 + '#', np.frombuffer(b.read(), dtype=np.dtype('byte')))
+            self._write(key2, item.data)
 
-                    return target.read(data)
-        
-        raise ValueError(f'unsupported key type: {key}')
+        return key
     
-    def event(self, evt: str) -> Event:
-        """Same as self.get(evt), added for consistency."""
-        if not _targets['event'].check_key(evt):
-            raise KeyError(f'{evt} is not an event name')
+    def _read_trace(self, key: str):
+        from obspy.io.sac import SACTrace
 
-        return self.get(evt)
-    
-    def station(self, sta: str) -> Inventory:
-        """Same as self.get(sta), added for consistency."""
-        if not _targets['station'].check_key(sta):
-            raise KeyError(f'{sta} is not an station name')
+        with BytesIO(self._bp.read(key + '#')) as b:
+            stats = SACTrace.read(b, headonly=True).to_obspy_trace().stats
 
-        return self.get(sta)
-    
-    def stream(self, sta: str) -> Stream:
-        """Get Stream of a station."""
-        if not _targets['station'].check_key(sta):
-            raise KeyError(f'{sta} is not an station name')
-
-        traces = []
-
-        for cha in self.channels[sta]:
-            traces.append(self.read(f'{sta}.{cha}'))
-        
-        return Stream(traces)
-    
-    def trace(self, sta: str, cmp: str) -> Trace:
-        """Get Trace of a station with channel or component code."""
-        if not _targets['station'].check_key(sta):
-            raise KeyError(f'{sta} is not an station name')
-
-        for cha in self.channels[sta]:
-            if (len(cmp) == 1 and cha.endswith(cmp)) or cha.endswith(f'.{cmp}'):
-                return tp.cast(Trace, self.read(f'{sta}.{cha}'))
-        
-        raise KeyError(f'{sta}.{cmp} does not exist')
-    
-    def put(self, key: str, val: np.ndarray | str):
-        """Save a numpy array or string."""
-        if isinstance(val, str):
-            self._bp.write(f'${key}', val)
-
-        else:
-            self._write(f'#{key}', val)
-    
-    def get(self, key: str):
-        """Get a numpy array or string."""
-        if key in self._cache['$keys']:
-            return self._bp.read(f'${key}').tostring().decode()
-
-        elif key in self._cache['#keys']:
-            return self._bp.read(f'#{key}')
-        
-        raise KeyError(f'{key} is not a valid key')
-
-    def close(self):
-        """Close file."""
-        if not self._closed:
-            self._bp.close()
-            self._closed = True
-
-
-class _Target(tp.Protocol):
-    """Protocol of data that can be saved."""
-    # Check if item belongs to this target
-    check: tp.Callable[[tp.Any], bool]
-
-    # Check if item is a group of this target
-    check_group: tp.Callable[[tp.Any], tp.Iterable | None] | None
-
-    # Check if key belongs to this target
-    check_key: tp.Callable[[str], bool]
-
-    # read target from byte stream
-    read: tp.Callable
-
-    # write target to byte stream
-    write: tp.Callable[[tp.Any], np.ndarray | tp.Tuple[np.ndarray, ...]]
-
-    # get the name of an item
-    name: tp.Callable[[tp.Any], str]
-
-    # number of entries
-    count: tp.Callable[[tp.Any], int | None] | None
-
-
-_targets: tp.Dict[str, _Target] = dict(zip(
-    targets.__all__, [getattr(targets, s) for s in targets.__all__]
-))
+        return Trace(self._bp.read(key), stats)
