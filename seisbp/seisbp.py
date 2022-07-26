@@ -107,8 +107,7 @@ class SeisBP:
     @tp.overload
     def add(self, item: Trace | Event, tag: str | None = None) -> str: ...
 
-    def add(self, item: Stream | Trace | Catalog | Event | Inventory |
-        tp.Tuple[str, np.ndarray, dict] | tp.Tuple[str, dict | np.ndarray], tag: str | None = None) -> str | tp.List[str]:
+    def add(self, item: Stream | Trace | Catalog | Event | Inventory, tag: str | None = None) -> str | tp.List[str]:
         """Add seismic data."""
         if self._mode not in ('w', 'a'):
             raise PermissionError('file not opened in write or append mode')
@@ -132,7 +131,7 @@ class SeisBP:
         
         raise TypeError(f'unsupported item {item}')
     
-    def set(self, key: str, item: tp.Tuple[np.ndarray, dict] | dict | np.ndarray, tag: str | None = None):
+    def put(self, key: str, item: tp.Tuple[np.ndarray, dict] | dict | np.ndarray, tag: str | None = None):
         """Set auxiliary data."""
         key2 = key
 

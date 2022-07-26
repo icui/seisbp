@@ -27,9 +27,9 @@ def test_write():
         bp.add(tr_tagged, 'tagged')
 
         # write auxiliary data
-        bp.set('aux', tr[0].data)
-        bp.set('aux2', {'tagged': False})
-        bp.set('aux', (tr_tagged[0].data, {'tagged': True}), 'tagged')
+        bp.put('aux', tr[0].data)
+        bp.put('aux2', {'tagged': False})
+        bp.put('aux', (tr_tagged[0].data, {'tagged': True}), 'tagged')
 
 
 def test_read():
