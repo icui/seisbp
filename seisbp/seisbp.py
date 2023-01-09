@@ -75,15 +75,15 @@ class SeisBP:
                     ndots = key.split(':')[0].count('.')
 
                     if ndots == 0:
-                        # event data
+                        # event data (e.g. C051200D)
                         self._events.add(key)
                     
                     elif ndots == 1:
-                        # station data
+                        # station data (e.g. II.OBN)
                         self._stations.add(key)
                     
                     elif ndots == 3:
-                        # trace data
+                        # trace data (e.g. IU.PET.S3.MXZ)
                         net, sta, loc, cha = key.split('.')
 
                         station = f'{net}.{sta}'
@@ -132,7 +132,7 @@ class SeisBP:
         raise TypeError(f'unsupported item {item}')
     
     def put(self, key: str, item: tp.Tuple[np.ndarray, dict] | dict | np.ndarray, tag: str | None = None):
-        """Set auxiliary data."""
+        """Add auxiliary data."""
         key2 = key
 
         if ':' in key:
@@ -142,11 +142,11 @@ class SeisBP:
             key2 += ':' + tag
         
         data: np.ndarray | None = None
-        aux: dict | None = None
+        params: dict | None = None
 
         if isinstance(item, tuple):
             data = item[0]
-            aux = item[1]
+            params = item[1]
 
             if not isinstance(item[0], np.ndarray) or not isinstance(item[1], dict):
                 raise TypeError(f'unsupported item {item}')
@@ -155,7 +155,7 @@ class SeisBP:
             data = item
         
         elif isinstance(item, dict):
-            aux = item
+            params = item
         
         else:
             raise TypeError(f'unsupported item {item}')
@@ -163,8 +163,8 @@ class SeisBP:
         if data is not None:
             self._write('$' + key2, data)
         
-        if aux:
-            self._write('$' + key2 + '#', np.frombuffer(json.dumps(aux).encode(), dtype=np.dtype('byte')))
+        if params:
+            self._write('$' + key2 + '#', np.frombuffer(json.dumps(params).encode(), dtype=np.dtype('byte')))
 
         return key
 
@@ -319,14 +319,16 @@ class SeisBP:
 
         for key in target:
             if key.endswith('#'):
-                # notation for auxiliary parameters
+                # notation for data parameters
                 key = key[:-1]
 
-            if tag:
+            if tag is not None:
+                # entries with tag
                 if key.endswith(':' + tag):
                     keys.add(key.split(':')[0])
             
             else:
+                # entries without tag
                 if ':' not in key:
                     keys.add(key)
         
@@ -337,13 +339,14 @@ class SeisBP:
         self._nbytes += data.nbytes
 
         if self._nbytes >= self._buffer_size * 1024 ** 2:
+            # end step when cache space is used up
             end_step=True
             self._nbytes = 0
 
         self._bp.write(key, data, count=data.shape, end_step=end_step)
 
     def _write_event(self, item: Event, tag: str | None) -> str:
-        # event name
+        # get event name
         key: str | None = None
 
         for d in item.event_descriptions:
@@ -374,6 +377,7 @@ class SeisBP:
 
     def _write_station(self, item: Inventory, tag: str | None) -> tp.List[str]:
         if len(item.networks) != 1 or len(item.networks[0].stations) != 1:
+            # Inventory with multiple stations
             keys = []
 
             for net in item.networks:
