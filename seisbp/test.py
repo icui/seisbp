@@ -21,15 +21,15 @@ def test_write():
 
         # write trace data
         tr = read('AZ.GRD.BHZ.sac')
-        tr_tagged = read('AZ.GRD.BHZ.tag_b.sac')
+        tr_tag_b = read('AZ.GRD.BHZ.tag_b.sac')
 
         bp.write(tr)
-        bp.write(tr_tagged, 'tag_b')
+        bp.write(tr_tag_b, 'tag_b')
 
         # write auxiliary data
         bp.write_auxiliary('aux', tr[0].data)
         bp.write_auxiliary('aux2', {'param_a': 'a'})
-        bp.write_auxiliary('aux3', (tr_tagged[0].data, {'param_b': True}), 'tag_d')
+        bp.write_auxiliary('aux3', (tr_tag_b[0].data, {'param_b': True}), 'tag_d')
 
 
 def test_read():
@@ -63,6 +63,8 @@ def test_read():
         tr = read('AZ.GRD.BHZ.sac')
         tr_tag_b = read('AZ.GRD.BHZ.tag_b.sac')
 
+        assert bp.traces_of_station('AZ.FRD') == set(['AZ.FRD..BHZ'])
+        assert bp.components('AZ.FRD') == set(['Z'])
         assert bp.read_trace(bp.trace_id('AZ.FRD')) == bp.read_stream('AZ.FRD')[0]
         assert all(bp.read_trace(bp.trace_id('AZ.FRD')).data == tr[0].data)
         assert all(bp.read_trace(bp.trace_id('AZ.FRD', None, 'tag_b')).data == tr_tag_b[0].data)

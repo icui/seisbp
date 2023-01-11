@@ -171,15 +171,15 @@ class SeisBP:
         return key_notag
 
     def events(self, tag: str | None = None) -> tp.Set[str]:
-        """List of event names."""
+        """Get names of events."""
         return self._find(self._events, tag)
 
     def stations(self, tag: str | None = None) -> tp.Set[str]:
-        """List of station names with StationXML."""
+        """Get names of stations with StationXML."""
         return self._find(self._stations, tag)
     
     def streams(self, tag: str | None = None) -> tp.Set[str]:
-        """List of station names with traces."""
+        """Get names of stations with traces."""
         if self._mode != 'r':
             raise PermissionError('file not opened in read mode')
 
@@ -200,7 +200,7 @@ class SeisBP:
         return stations
     
     def traces(self, tag: str | None = None) -> tp.Set[str]:
-        """List of trace IDs."""
+        """Get trace IDs."""
         if self._mode != 'r':
             raise PermissionError('file not opened in read mode')
 
@@ -212,22 +212,30 @@ class SeisBP:
         return traces
     
     def traces_of_station(self, station: str, tag: str | None = None) -> tp.Set[str]:
-        """List of trace IDs in a station."""
-        traces = set()
+        """Get trace IDs of a station."""
+        return set(f'{station}.{cha}' for cha in self.channels(station, tag))
+
+    def channels(self, station: str, tag: str | None = None) -> tp.Set[str]:
+        """Get channels of a station."""
+        channels = set()
 
         for cha in self._traces[station]:
             if tag:
                 if cha.endswith(':' + tag):
-                    traces.add(f'{station}.{cha.split(":")[0]}')
-            
+                    channels.add(cha.split(':')[0])
+
             else:
                 if ':' not in cha:
-                    traces.add(f'{station}.{cha}')
-            
-        return traces
+                    channels.add(cha)
+
+        return channels
+
+    def components(self, station: str, tag: str | None = None) -> tp.Set[str]:
+        """Get components of a station."""
+        return set(cha[-1] for cha in self.channels(station, tag))
     
     def auxiliaries(self, tag: str | None = None) -> tp.Set[str]:
-        """List of auxiliary data keys."""
+        """Get auxiliary data keys."""
         return self._find(self._auxiliaries, tag)
     
     def event_tags(self, event: str) -> tp.Set[None | str]:
