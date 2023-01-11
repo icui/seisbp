@@ -40,8 +40,8 @@ def test_read():
         assert bp.events() == bp.events('tag_a') == {'C201107191935A'}
         assert bp.stations() == bp.stations('tag_c') == {'AZ.FRD'}
         assert bp.streams() == bp.streams('tag_b') == {'AZ.FRD'}
-        assert bp.traces() == {'AZ.FRD': {'.BHZ'}}
-        assert bp.traces('tag_b') == {'AZ.FRD': {'S3.BHZ'}}
+        assert bp.traces('AZ.FRD') == {'.BHZ'}
+        assert bp.traces('AZ.FRD', 'tag_b') == {'S3.BHZ'}
         assert bp.auxiliaries() == {'aux', 'aux2'}
         assert bp.auxiliaries('tag_d') == {'aux3'}
 
@@ -64,7 +64,7 @@ def test_read():
         tr = read('AZ.GRD.BHZ.sac')
         tr_tag_b = read('AZ.GRD.BHZ.tag_b.sac')
 
-        assert bp.channels('AZ.FRD') == {'.BHZ'}
+        assert bp.traces('AZ.FRD') == {'.BHZ'}
         assert bp.components('AZ.FRD') == {'Z'}
         assert bp.read_trace('AZ.FRD', '.BHZ') == bp.read_stream('AZ.FRD')[0]
         assert all(bp.read_trace('AZ.FRD').data == tr[0].data)

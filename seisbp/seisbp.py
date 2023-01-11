@@ -117,7 +117,7 @@ class SeisBP:
         if isinstance(item, (Stream, Catalog)):
             keys = []
 
-            for it in item:
+            for it in item: # type: ignore
                 keys.append(self.write(it, tag))
             
             return keys
@@ -140,7 +140,7 @@ class SeisBP:
         if ':' in key:
             raise KeyError('`:` is not allowed in data key')
 
-        if tag:
+        if tag is not None:
             key += ':' + tag
         
         data: np.ndarray | None = None
@@ -164,7 +164,7 @@ class SeisBP:
         
         if data is not None:
             self._write('$' + key, data)
-        
+
         if params is not None:
             self._write('$' + key + '#', np.frombuffer(json.dumps(params).encode(), dtype=np.dtype('byte')))
 
@@ -176,8 +176,9 @@ class SeisBP:
 
     def stations(self, tag: str | None = None) -> tp.Set[str]:
         """Get names of stations with StationXML."""
+        # stations with StationXML
         return self._find(self._stations, tag)
-    
+
     def streams(self, tag: str | None = None) -> tp.Set[str]:
         """Get names of stations with traces."""
         self._read()
@@ -186,49 +187,38 @@ class SeisBP:
 
         for sta, chas in self._traces.items():
             for cha in chas:
-                if tag:
+                if tag is not None:
                     if cha.endswith(':' + tag):
                         stations.add(sta)
-                        continue
-                
+                        break
+
                 else:
                     if ':' not in cha:
                         stations.add(sta)
-                        continue
-        
+                        break
+
         return stations
-    
-    def traces(self, tag: str | None = None) -> tp.Dict[str, tp.Set[str]]:
-        """Get dict of trace station -> channel."""
+
+    def traces(self, station: str, tag: str | None = None) -> tp.Set[str]:
+        """Get trace identifiers (location + channel) of a station."""
         self._read()
 
-        traces = {}
-
-        for sta in self._traces:
-            traces[sta] = self.channels(sta, tag)
-        
-        return traces
-
-    def channels(self, station: str, tag: str | None = None) -> tp.Set[str]:
-        """Get channels of a station."""
-        self._read()
-
-        channels = set()
+        traces = set()
 
         for cha in self._traces[station]:
-            if tag:
+            if tag is not None:
                 if cha.endswith(':' + tag):
-                    channels.add(cha.split(':')[0])
+                    traces.add(cha.split(':')[0])
 
             else:
                 if ':' not in cha:
-                    channels.add(cha)
+                    traces.add(cha)
 
-        return channels
+        return traces
 
     def components(self, station: str, tag: str | None = None) -> tp.Set[str]:
         """Get components of a station."""
-        return {cha[-1] for cha in self.channels(station, tag)}
+        return {cha[-1] for cha in self.traces(station, tag)}
     
     def auxiliaries(self, tag: str | None = None) -> tp.Set[str]:
         """Get auxiliary data keys."""
@@ -267,7 +257,7 @@ class SeisBP:
 
         self._read()
 
-        if tag:
+        if tag is not None:
             event += ':' + tag
 
         with BytesIO(self._bp.read(event)) as b:
@@ -279,7 +269,7 @@ class SeisBP:
 
         self._read()
 
-        if tag:
+        if tag is not None:
             station += ':' + tag
 
         with BytesIO(self._bp.read(station)) as b:
@@ -289,7 +279,7 @@ class SeisBP:
         """Read a stream."""
         traces = []
 
-        for cha in self.channels(station):
+        for cha in self.traces(station):
             traces.append(self.read_trace(station, cha, tag))
         
         if len(traces) == 0:
@@ -297,19 +287,19 @@ class SeisBP:
         
         return Stream(traces)
 
-    def read_trace(self, station: str, cmp: str | None = None, tag: str | None = None) -> Trace:
+    def read_trace(self, station: str, cha: str | None = None, tag: str | None = None) -> Trace:
         """Read a trace."""
-        return Trace(self.read_trace_data(station, cmp, tag), self.read_trace_header(station, cmp, tag))
+        return Trace(self.read_trace_data(station, cha, tag), self.read_trace_header(station, cha, tag))
 
-    def read_trace_data(self, station: str, cmp: str | None = None, tag: str | None = None) -> np.ndarray:
+    def read_trace_data(self, station: str, cha: str | None = None, tag: str | None = None) -> np.ndarray:
         """Read a trace data."""
-        return self._bp.read(self._find_trace(station, cmp, tag))
+        return self._bp.read(self._find_trace(station, cha, tag))
 
-    def read_trace_header(self, station: str, cmp: str | None = None, tag: str | None = None) -> Stats:
+    def read_trace_header(self, station: str, cha: str | None = None, tag: str | None = None) -> Stats:
         """Read a trace header."""
         from obspy.io.sac import SACTrace
 
-        with BytesIO(self._bp.read(self._find_trace(station, cmp, tag) + '#')) as b:
+        with BytesIO(self._bp.read(self._find_trace(station, cha, tag) + '#')) as b:
             return SACTrace.read(b, headonly=True).to_obspy_trace().stats
     
     def read_auxiliary(self, key: str, tag: str | None = None) -> tp.Tuple[np.ndarray | None, dict | None]:
@@ -320,7 +310,7 @@ class SeisBP:
         """Read auxiliary data."""
         self._read()
 
-        if tag:
+        if tag is not None:
             key += ':' + tag
 
         if key in self._auxiliaries:
@@ -337,7 +327,7 @@ class SeisBP:
         """Read auxiliary parameters."""
         self._read()
 
-        if tag:
+        if tag is not None:
             key += ':' + tag
         
         if f'{key}#' in self._auxiliaries:
@@ -406,7 +396,7 @@ class SeisBP:
         self._read()
 
         for cha in self._traces[station]:
-            if tag:
+            if tag is not None:
                 if not cha.endswith(':' + tag):
                     continue
 
@@ -463,7 +453,7 @@ class SeisBP:
         # event name with tag
         key_notag = key
 
-        if tag:
+        if tag is not None:
             key += ':' + tag
 
         with BytesIO() as b:
@@ -486,7 +476,7 @@ class SeisBP:
         
         key = key_notag = f'{item.networks[0].code}.{item.networks[0].stations[0].code}'
 
-        if tag:
+        if tag is not None:
             key += ':' + tag
 
         with BytesIO() as b:
@@ -501,7 +491,7 @@ class SeisBP:
 
         key = key_notag = f'{item.stats.network}.{item.stats.station}.{item.stats.location}.{item.stats.channel}'
 
-        if tag:
+        if tag is not None:
             key += ':' + tag
 
         with BytesIO() as b:
