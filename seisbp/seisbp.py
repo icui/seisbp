@@ -170,65 +170,65 @@ class SeisBP:
 
         return key_notag
 
-    def events(self, tag: str | None = None) -> tp.List[str]:
+    def events(self, tag: str | None = None) -> tp.Set[str]:
         """List of event names."""
-        return self._list(self._events, tag)
+        return self._find(self._events, tag)
 
-    def stations(self, tag: str | None = None) -> tp.List[str]:
+    def stations(self, tag: str | None = None) -> tp.Set[str]:
         """List of station names with StationXML."""
-        return self._list(self._stations, tag)
+        return self._find(self._stations, tag)
     
-    def streams(self, tag: str | None = None) -> tp.List[str]:
+    def streams(self, tag: str | None = None) -> tp.Set[str]:
         """List of station names with traces."""
         if self._mode != 'r':
             raise PermissionError('file not opened in read mode')
 
-        stations = []
+        stations = set()
 
         for sta, chas in self._traces.items():
             for cha in chas:
                 if tag:
                     if cha.endswith(':' + tag):
-                        stations.append(sta)
+                        stations.add(sta)
                         continue
                 
                 else:
                     if ':' not in cha:
-                        stations.append(sta)
+                        stations.add(sta)
                         continue
         
         return stations
     
-    def traces(self, tag: str | None = None) -> tp.List[str]:
+    def traces(self, tag: str | None = None) -> tp.Set[str]:
         """List of trace IDs."""
         if self._mode != 'r':
             raise PermissionError('file not opened in read mode')
 
-        traces = []
+        traces = set()
 
         for sta in self._traces:
-            traces += self.traces_of_station(sta, tag)
+            traces.update(self.traces_of_station(sta, tag))
         
         return traces
     
-    def traces_of_station(self, station: str, tag: str | None = None) -> tp.List[str]:
+    def traces_of_station(self, station: str, tag: str | None = None) -> tp.Set[str]:
         """List of trace IDs in a station."""
-        traces = []
+        traces = set()
 
         for cha in self._traces[station]:
             if tag:
                 if cha.endswith(':' + tag):
-                    traces.append(f'{station}.{cha.split(":")[0]}')
+                    traces.add(f'{station}.{cha.split(":")[0]}')
             
             else:
                 if ':' not in cha:
-                    traces.append(f'{station}.{cha}')
+                    traces.add(f'{station}.{cha}')
             
         return traces
     
-    def auxiliaries(self, tag: str | None = None) -> tp.List[str]:
+    def auxiliaries(self, tag: str | None = None) -> tp.Set[str]:
         """List of auxiliary data keys."""
-        return self._list(self._auxiliaries, tag)
+        return self._find(self._auxiliaries, tag)
 
     def trace_id(self, station: str, cmp: str | None = None, tag: str | None = None) -> str:
         """Find the ID of a trace."""
@@ -349,7 +349,7 @@ class SeisBP:
             self._bp.close()
             self._closed = True
     
-    def _list(self, target: tp.Set[str], tag: str | None) -> tp.List[str]:
+    def _find(self, target: tp.Set[str], tag: str | None) -> tp.Set[str]:
         if self._mode != 'r':
             raise PermissionError('file not opened in read mode')
 
@@ -370,7 +370,7 @@ class SeisBP:
                 if ':' not in key:
                     keys.add(key)
         
-        return list(keys)
+        return keys
     
     def _write(self, key: str, data: np.ndarray):
         end_step = False
