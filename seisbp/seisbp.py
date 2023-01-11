@@ -199,21 +199,17 @@ class SeisBP:
         
         return stations
     
-    def traces(self, tag: str | None = None) -> tp.Set[str]:
-        """Get trace IDs."""
+    def traces(self, tag: str | None = None) -> tp.Dict[str, tp.Set[str]]:
+        """Get dict of trace station -> channel."""
         if self._mode != 'r':
             raise PermissionError('file not opened in read mode')
 
-        traces = set()
+        traces = {}
 
         for sta in self._traces:
-            traces.update(self.traces_of_station(sta, tag))
+            traces[sta] = self.channels(sta, tag)
         
         return traces
-    
-    def traces_of_station(self, station: str, tag: str | None = None) -> tp.Set[str]:
-        """Get trace IDs of a station."""
-        return {f'{station}.{cha}' for cha in self.channels(station, tag)}
 
     def channels(self, station: str, tag: str | None = None) -> tp.Set[str]:
         """Get channels of a station."""
@@ -266,32 +262,6 @@ class SeisBP:
         """Get tag names of auxiliary data."""
         return self._tag(self._auxiliaries, key)
 
-    def trace_id(self, station: str, cmp: str | None = None, tag: str | None = None) -> str:
-        """Find the ID of a trace."""
-        for cha in self._traces[station]:
-            if tag:
-                if not cha.endswith(':' + tag):
-                    continue
-
-            else:
-                if ':' in cha:
-                    continue
-
-            if cmp is not None:
-                # skip traces without matching component
-                cha_notag = cha.split(':')[0]
-
-                if len(cmp) == 1:
-                    if cha_notag[-1] != cmp:
-                        continue
-
-                elif cha_notag != cmp:
-                    continue
-
-            return f'{station}.{cha}'
-
-        raise KeyError(f'trace {station}.{cmp or ""} not found')
-
     def read_event(self, event: str, tag: str | None = None) -> Event:
         """Read an event."""
         from obspy import read_events
@@ -316,33 +286,27 @@ class SeisBP:
         """Read a stream."""
         traces = []
 
-        for key in self.traces_of_station(station):
-            traces.append(self.read_trace(key, tag))
+        for cha in self.channels(station):
+            traces.append(self.read_trace(station, cha, tag))
         
         if len(traces) == 0:
             raise KeyError(f'{station} not found')
         
         return Stream(traces)
 
-    def read_trace(self, trace_id: str, tag: str | None = None) -> Trace:
+    def read_trace(self, station: str, cmp: str | None = None, tag: str | None = None) -> Trace:
         """Read a trace."""
-        return Trace(self.read_trace_data(trace_id, tag), self.read_trace_header(trace_id, tag))
+        return Trace(self.read_trace_data(station, cmp, tag), self.read_trace_header(station, cmp, tag))
 
-    def read_trace_data(self, trace_id: str, tag: str | None = None) -> np.ndarray:
+    def read_trace_data(self, station: str, cmp: str | None = None, tag: str | None = None) -> np.ndarray:
         """Read a trace data."""
-        if tag:
-            trace_id += ':' + tag
+        return self._bp.read(self._find_trace(station, cmp, tag))
 
-        return self._bp.read(trace_id)
-
-    def read_trace_header(self, trace_id: str, tag: str | None = None) -> Stats:
+    def read_trace_header(self, station: str, cmp: str | None = None, tag: str | None = None) -> Stats:
         """Read a trace header."""
         from obspy.io.sac import SACTrace
 
-        if tag:
-            trace_id += ':' + tag
-
-        with BytesIO(self._bp.read(trace_id + '#')) as b:
+        with BytesIO(self._bp.read(self._find_trace(station, cmp, tag) + '#')) as b:
             return SACTrace.read(b, headonly=True).to_obspy_trace().stats
     
     def read_auxiliary(self, key: str, tag: str | None = None) -> tp.Tuple[np.ndarray | None, dict | None]:
@@ -428,6 +392,40 @@ class SeisBP:
                 tags.add(key.split(':')[1])
 
         return tags
+    
+    def _find_trace(self, station: str, cmp: str | None, tag: str | None) -> str:
+        for cha in self._traces[station]:
+            if tag:
+                if not cha.endswith(':' + tag):
+                    continue
+
+            else:
+                if ':' in cha:
+                    continue
+            
+            # remove channel tag for trace ID
+            cha_notag = cha.split(':')[0]
+
+            if cmp is not None:
+                # skip traces without matching component
+                if len(cmp) == 1:
+                    # cmp is component code
+                    if cha_notag[-1] != cmp:
+                        continue
+                
+                elif '.' in cmp:
+                    # cmp is f'{location}.{channel}'
+                    if cha_notag != cmp:
+                        continue
+                
+                else:
+                    # cmp is channel code
+                    if cha_notag.split('.')[-1] != cmp:
+                        continue
+
+            return f'{station}.{cha}'
+
+        raise KeyError(f'trace {station}.{cmp or ""} not found')
     
     def _write(self, key: str, data: np.ndarray):
         end_step = False
