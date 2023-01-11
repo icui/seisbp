@@ -55,7 +55,7 @@ class SeisBP:
         self._mode = mode
         self._comm = comm or None
 
-        # index of all entries in read mode
+        # index of all items in read mode
         if mode == 'r':
             # keys of event, station, trace and auxiliary data
             self._events = set()
@@ -229,6 +229,34 @@ class SeisBP:
     def auxiliaries(self, tag: str | None = None) -> tp.Set[str]:
         """List of auxiliary data keys."""
         return self._find(self._auxiliaries, tag)
+    
+    def event_tags(self, event: str) -> tp.Set[None | str]:
+        """Get tag names of an event."""
+        return self._tag(self._events, event)
+    
+    def station_tags(self, station: str):
+        """Get StationXML tag names of a station."""
+        return self._tag(self._stations, station)
+    
+    def trace_tags(self, station: str) -> tp.Set[str | None]:
+        """Get trace tag names of a station."""
+        if self._mode != 'r':
+            raise PermissionError('file not opened in read mode')
+
+        tags = set()
+
+        for cha in self._traces[station]:
+            if ':' in cha:
+                tags.add(cha.split(':')[1])
+            
+            else:
+                tags.add(None)
+        
+        return tags
+    
+    def auxiliary_tags(self, key: str):
+        """Get tag names of auxiliary data."""
+        return self._tag(self._auxiliaries, key)
 
     def trace_id(self, station: str, cmp: str | None = None, tag: str | None = None) -> str:
         """Find the ID of a trace."""
@@ -357,20 +385,41 @@ class SeisBP:
 
         for key in target:
             if key.endswith('#'):
-                # notation for data parameters
+                # auxiliary data parameters
                 key = key[:-1]
 
             if tag is not None:
-                # entries with tag
+                # items with tag
                 if key.endswith(':' + tag):
                     keys.add(key.split(':')[0])
             
             else:
-                # entries without tag
+                # items without tag
                 if ':' not in key:
                     keys.add(key)
         
         return keys
+    
+    def _tag(self, target: tp.Set[str], name: str) -> tp.Set[str | None]:
+        if self._mode != 'r':
+            raise PermissionError('file not opened in read mode')
+
+        tags = set()
+
+        for key in target:
+            if key.endswith('#'):
+                # auxiliary data parameters
+                key = key[:-1]
+
+            if key == name:
+                # item with no tag
+                tags.add(None)
+            
+            elif key.startswith(name + ':'):
+                # item with tag
+                tags.add(key.split(':')[1])
+
+        return tags
     
     def _write(self, key: str, data: np.ndarray):
         end_step = False

@@ -37,12 +37,19 @@ def test_read():
 
     with SeisBP('test.bp', 'r') as bp:
         # read indexing
-        assert bp.events() == bp.events('tag_a') == ['C201107191935A']
-        assert bp.stations() == bp.stations('tag_c') == ['AZ.FRD']
-        assert bp.streams() == bp.streams('tag_b') == ['AZ.FRD']
-        assert bp.traces() == bp.traces('tag_b') == ['AZ.FRD..BHZ']
+        assert bp.events() == bp.events('tag_a') == set(['C201107191935A'])
+        assert bp.stations() == bp.stations('tag_c') == set(['AZ.FRD'])
+        assert bp.streams() == bp.streams('tag_b') == set(['AZ.FRD'])
+        assert bp.traces() == bp.traces('tag_b') == set(['AZ.FRD..BHZ'])
         assert set(bp.auxiliaries()) == set(('aux', 'aux2'))
-        assert bp.auxiliaries('tag_d') == ['aux3']
+        assert bp.auxiliaries('tag_d') == set(['aux3'])
+
+        # read tags
+        assert bp.event_tags('C201107191935A') == set((None, 'tag_a'))
+        assert bp.station_tags('AZ.FRD') == set((None, 'tag_c'))
+        assert bp.trace_tags('AZ.FRD') == set((None, 'tag_b'))
+        assert bp.auxiliary_tags('aux') == set([None])
+        assert bp.auxiliary_tags('aux3') == set(['tag_d'])
 
         # read event data
         assert bp.read_event('C201107191935A') == read_events('C201107191935A')[0]
