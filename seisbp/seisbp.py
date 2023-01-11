@@ -64,6 +64,9 @@ class SeisBP:
             self._auxiliaries = set()
 
             for key in self._bp.available_variables():
+                if ':' not in key:
+                    key += ':'
+
                 if key.startswith('$'):
                     # auxiliary data or parameters
                     self._auxiliaries.add(key[1:])
@@ -157,11 +160,18 @@ class SeisBP:
         else:
             raise TypeError(f'unsupported item {item}')
         
-        if data is not None:
-            self._write('$' + key, data, tag)
+        if data is None:
+            data = np.array([])
+        
+        if params is None:
+            params = {}
 
-        if params is not None:
-            self._write('$' + key + '#', np.frombuffer(json.dumps(params).encode(), dtype=np.dtype('byte')), tag)
+        self._write('$' + key, data, tag)
+
+        if tag:
+            key += ':' + tag
+
+        self._bp.write_attribute('params', json.dumps(params), '$' + key)
 
         return key
 
@@ -176,7 +186,7 @@ class SeisBP:
 
     def streams(self, tag: str = '') -> tp.Set[str]:
         """Get names of stations with traces."""
-        self._read()
+        self._read_mode()
 
         stations = set()
 
@@ -190,7 +200,7 @@ class SeisBP:
 
     def traces(self, station: str, tag: str = '') -> tp.Set[str]:
         """Get trace identifiers (location + channel) of a station."""
-        self._read()
+        self._read_mode()
 
         traces = set()
 
@@ -218,7 +228,7 @@ class SeisBP:
     
     def trace_tags(self, station: str) -> tp.Set[str]:
         """Get trace tag names of a station."""
-        self._read()
+        self._read_mode()
 
         tags = set()
 
@@ -239,18 +249,14 @@ class SeisBP:
         """Read an event."""
         from obspy import read_events
 
-        self._read()
-
-        with BytesIO(self._bp.read(event + ':' + tag)) as b:
+        with BytesIO(self._read(event, tag)) as b:
             return read_events(b, format='quakeml')[0]
 
     def read_station(self, station: str, tag: str = '') -> Inventory:
         """Read a station."""
         from obspy import read_inventory
 
-        self._read()
-
-        with BytesIO(self._bp.read(station + ':' + tag)) as b:
+        with BytesIO(self._read(station, tag)) as b:
             return read_inventory(b)
 
     def read_stream(self, station: str, tag: str = '') -> Stream:
@@ -271,13 +277,13 @@ class SeisBP:
 
     def read_trace_data(self, station: str, cha: str | None = None, tag: str = '') -> np.ndarray:
         """Read a trace data."""
-        return self._bp.read(self._find_trace(station, cha, tag))
+        return self._read(self._find_trace(station, cha, tag), tag)
 
     def read_trace_header(self, station: str, cha: str | None = None, tag: str = '') -> Stats:
         """Read a trace header."""
         from obspy.io.sac import SACTrace
 
-        with BytesIO(self._bp.read(self._find_trace(station, cha, tag).replace(':', '#:'))) as b:
+        with BytesIO(self._read(self._find_trace(station, cha, tag) + '#', tag)) as b:
             return SACTrace.read(b, headonly=True).to_obspy_trace().stats
     
     def read_auxiliary(self, key: str, tag: str = '') -> tp.Tuple[np.ndarray | None, dict | None]:
@@ -286,29 +292,19 @@ class SeisBP:
     
     def read_auxiliary_data(self, key: str, tag: str = '') -> np.ndarray | None:
         """Read auxiliary data."""
-        self._read()
-
         if f'{key}:{tag}' in self._auxiliaries:
             # return data if it exists
-            return self._bp.read(f'${key}:{tag}')
-        
-        if f'{key}#:{tag}' in self._auxiliaries:
-            # return None if data does not exist, but parameter dict exists
-            return None
+            return self._read('$' + key, tag)
         
         raise KeyError(f'{key} not found')
     
     def read_auxiliary_params(self, key: str, tag: str = '') -> dict | None:
         """Read auxiliary parameters."""
-        self._read()
-        
-        if f'{key}#:{tag}' in self._auxiliaries:
-            # return parameter dict if it exists
-            return json.loads(self._bp.read(f'${key}#:{tag}').tobytes().decode())
-        
         if f'{key}:{tag}' in self._auxiliaries:
-            # return None if parameter dict does not exist, but data exists
-            return None
+            if tag:
+                key += ':' + tag
+
+            return json.loads(self._bp.read_attribute_string('params', '$' + key)[0])
         
         raise KeyError(f'{key} not found')
 
@@ -318,12 +314,12 @@ class SeisBP:
             self._bp.close()
             self._closed = True
 
-    def _read(self):
+    def _read_mode(self):
         if self._mode != 'r':
             raise PermissionError('file not opened in read mode')
     
     def _find(self, target: tp.Set[str], tag: str) -> tp.Set[str]:
-        self._read()
+        self._read_mode()
 
         keys = set()
 
@@ -341,7 +337,7 @@ class SeisBP:
         return keys
     
     def _tag(self, target: tp.Set[str], name: str) -> tp.Set[str]:
-        self._read()
+        self._read_mode()
 
         tags = set()
 
@@ -358,35 +354,43 @@ class SeisBP:
         return tags
     
     def _find_trace(self, station: str, cmp: str | None, tag: str) -> str:
-        self._read()
+        self._read_mode()
 
         for cha in self._traces[station]:
             if not cha.endswith(':' + tag):
                 continue
             
             # remove channel tag for trace ID
-            cha_notag = cha.split(':')[0]
+            cha = cha.split(':')[0]
 
             if cmp is not None:
                 # skip traces without matching component
                 if len(cmp) == 1:
                     # cmp is component code
-                    if cha_notag[-1] != cmp:
+                    if cha[-1] != cmp:
                         continue
                 
                 elif '.' in cmp:
                     # cmp is f'{location}.{channel}'
-                    if cha_notag != cmp:
+                    if cha != cmp:
                         continue
                 
                 else:
                     # cmp is channel code
-                    if cha_notag.split('.')[-1] != cmp:
+                    if cha.split('.')[-1] != cmp:
                         continue
 
             return f'{station}.{cha}'
 
         raise KeyError(f'trace {station}.{cmp or ""} not found')
+    
+    def _read(self, key: str, tag: str):
+        self._read_mode()
+
+        if tag:
+            key += ':' + tag
+        
+        return self._bp.read(key)
     
     def _write(self, key: str, data: np.ndarray, tag: str):
         end_step = False
@@ -396,8 +400,11 @@ class SeisBP:
             # end step when cache space is used up
             end_step=True
             self._nbytes = 0
+        
+        if tag:
+            key += ':' + tag
 
-        self._bp.write(f'{key}:{tag}', data, count=data.shape, end_step=end_step)
+        self._bp.write(key, data, count=data.shape, end_step=end_step)
 
     def _write_event(self, item: Event, tag: str) -> str:
         # get event name
