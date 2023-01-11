@@ -180,8 +180,7 @@ class SeisBP:
     
     def streams(self, tag: str | None = None) -> tp.Set[str]:
         """Get names of stations with traces."""
-        if self._mode != 'r':
-            raise PermissionError('file not opened in read mode')
+        self._read()
 
         stations = set()
 
@@ -201,8 +200,7 @@ class SeisBP:
     
     def traces(self, tag: str | None = None) -> tp.Dict[str, tp.Set[str]]:
         """Get dict of trace station -> channel."""
-        if self._mode != 'r':
-            raise PermissionError('file not opened in read mode')
+        self._read()
 
         traces = {}
 
@@ -213,6 +211,8 @@ class SeisBP:
 
     def channels(self, station: str, tag: str | None = None) -> tp.Set[str]:
         """Get channels of a station."""
+        self._read()
+
         channels = set()
 
         for cha in self._traces[station]:
@@ -244,8 +244,7 @@ class SeisBP:
     
     def trace_tags(self, station: str) -> tp.Set[str | None]:
         """Get trace tag names of a station."""
-        if self._mode != 'r':
-            raise PermissionError('file not opened in read mode')
+        self._read()
 
         tags = set()
 
@@ -266,6 +265,8 @@ class SeisBP:
         """Read an event."""
         from obspy import read_events
 
+        self._read()
+
         if tag:
             event += ':' + tag
 
@@ -275,6 +276,8 @@ class SeisBP:
     def read_station(self, station: str, tag: str | None = None) -> Inventory:
         """Read a station."""
         from obspy import read_inventory
+
+        self._read()
 
         if tag:
             station += ':' + tag
@@ -315,6 +318,8 @@ class SeisBP:
     
     def read_auxiliary_data(self, key: str, tag: str | None = None) -> np.ndarray | None:
         """Read auxiliary data."""
+        self._read()
+
         if tag:
             key += ':' + tag
 
@@ -330,6 +335,8 @@ class SeisBP:
     
     def read_auxiliary_params(self, key: str, tag: str | None = None) -> dict | None:
         """Read auxiliary parameters."""
+        self._read()
+
         if tag:
             key += ':' + tag
         
@@ -348,10 +355,13 @@ class SeisBP:
         if not self._closed:
             self._bp.close()
             self._closed = True
-    
-    def _find(self, target: tp.Set[str], tag: str | None) -> tp.Set[str]:
+
+    def _read(self):
         if self._mode != 'r':
             raise PermissionError('file not opened in read mode')
+    
+    def _find(self, target: tp.Set[str], tag: str | None) -> tp.Set[str]:
+        self._read()
 
         keys = set()
 
@@ -373,8 +383,7 @@ class SeisBP:
         return keys
     
     def _tag(self, target: tp.Set[str], name: str) -> tp.Set[str | None]:
-        if self._mode != 'r':
-            raise PermissionError('file not opened in read mode')
+        self._read()
 
         tags = set()
 
@@ -394,6 +403,8 @@ class SeisBP:
         return tags
     
     def _find_trace(self, station: str, cmp: str | None, tag: str | None) -> str:
+        self._read()
+
         for cha in self._traces[station]:
             if tag:
                 if not cha.endswith(':' + tag):
