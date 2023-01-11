@@ -70,7 +70,7 @@ class SeisBP:
                 
                 else:
                     # event, station or trace data
-                    if key.endswith('#'):
+                    if '#:' in key:
                         # skip trace header because it always binds to trace data
                         continue
 
@@ -135,14 +135,9 @@ class SeisBP:
     
     def write_auxiliary(self, key: str, item: tp.Tuple[np.ndarray, dict] | dict | np.ndarray, tag: str = '') -> str:
         """Write auxiliary data and/or parameters."""
-        key_notag = key
-
         if ':' in key:
             raise KeyError('`:` is not allowed in data key')
 
-        if tag:
-            key += ':' + tag
-        
         data: np.ndarray | None = None
         params: dict | None = None
 
@@ -163,12 +158,12 @@ class SeisBP:
             raise TypeError(f'unsupported item {item}')
         
         if data is not None:
-            self._write('$' + key, data)
+            self._write('$' + key, data, tag)
 
         if params is not None:
-            self._write('$' + key + '#', np.frombuffer(json.dumps(params).encode(), dtype=np.dtype('byte')))
+            self._write('$' + key + '#', np.frombuffer(json.dumps(params).encode(), dtype=np.dtype('byte')), tag)
 
-        return key_notag
+        return key
 
     def events(self, tag: str = '') -> tp.Set[str]:
         """Get names of events."""
@@ -187,15 +182,9 @@ class SeisBP:
 
         for sta, chas in self._traces.items():
             for cha in chas:
-                if tag:
-                    if cha.endswith(':' + tag):
-                        stations.add(sta)
-                        break
-
-                else:
-                    if ':' not in cha:
-                        stations.add(sta)
-                        break
+                if cha.endswith(':' + tag):
+                    stations.add(sta)
+                    break
 
         return stations
 
@@ -206,13 +195,8 @@ class SeisBP:
         traces = set()
 
         for cha in self._traces[station]:
-            if tag:
-                if cha.endswith(':' + tag):
-                    traces.add(cha.split(':')[0])
-
-            else:
-                if ':' not in cha:
-                    traces.add(cha)
+            if cha.endswith(':' + tag):
+                traces.add(cha.split(':')[0])
 
         return traces
 
@@ -257,10 +241,7 @@ class SeisBP:
 
         self._read()
 
-        if tag:
-            event += ':' + tag
-
-        with BytesIO(self._bp.read(event)) as b:
+        with BytesIO(self._bp.read(event + ':' + tag)) as b:
             return read_events(b, format='quakeml')[0]
 
     def read_station(self, station: str, tag: str = '') -> Inventory:
@@ -269,10 +250,7 @@ class SeisBP:
 
         self._read()
 
-        if tag:
-            station += ':' + tag
-
-        with BytesIO(self._bp.read(station)) as b:
+        with BytesIO(self._bp.read(station + ':' + tag)) as b:
             return read_inventory(b)
 
     def read_stream(self, station: str, tag: str = '') -> Stream:
@@ -299,7 +277,7 @@ class SeisBP:
         """Read a trace header."""
         from obspy.io.sac import SACTrace
 
-        with BytesIO(self._bp.read(self._find_trace(station, cha, tag) + '#')) as b:
+        with BytesIO(self._bp.read(self._find_trace(station, cha, tag).replace(':', '#:'))) as b:
             return SACTrace.read(b, headonly=True).to_obspy_trace().stats
     
     def read_auxiliary(self, key: str, tag: str = '') -> tp.Tuple[np.ndarray | None, dict | None]:
@@ -310,14 +288,11 @@ class SeisBP:
         """Read auxiliary data."""
         self._read()
 
-        if tag:
-            key += ':' + tag
-
-        if key in self._auxiliaries:
+        if f'{key}:{tag}' in self._auxiliaries:
             # return data if it exists
-            return self._bp.read(f'${key}')
+            return self._bp.read(f'${key}:{tag}')
         
-        if f'{key}#' in self._auxiliaries:
+        if f'{key}#:{tag}' in self._auxiliaries:
             # return None if data does not exist, but parameter dict exists
             return None
         
@@ -326,15 +301,12 @@ class SeisBP:
     def read_auxiliary_params(self, key: str, tag: str = '') -> dict | None:
         """Read auxiliary parameters."""
         self._read()
-
-        if tag:
-            key += ':' + tag
         
-        if f'{key}#' in self._auxiliaries:
+        if f'{key}#:{tag}' in self._auxiliaries:
             # return parameter dict if it exists
-            return json.loads(self._bp.read(f'${key}#').tobytes().decode())
+            return json.loads(self._bp.read(f'${key}#:{tag}').tobytes().decode())
         
-        if key in self._auxiliaries:
+        if f'{key}:{tag}' in self._auxiliaries:
             # return None if parameter dict does not exist, but data exists
             return None
         
@@ -356,19 +328,15 @@ class SeisBP:
         keys = set()
 
         for key in target:
-            if key.endswith('#'):
-                # auxiliary data parameters
-                key = key[:-1]
+            # items with tag
+            if key.endswith(':' + tag):
+                key = key.split(':')[0]
+                
+                if key.endswith('#'):
+                    # auxiliary data parameters
+                    key = key[:-1]
 
-            if tag:
-                # items with tag
-                if key.endswith(':' + tag):
-                    keys.add(key.split(':')[0])
-            
-            else:
-                # items without tag
-                if ':' not in key:
-                    keys.add(key)
+                keys.add(key)
         
         return keys
     
@@ -378,17 +346,14 @@ class SeisBP:
         tags = set()
 
         for key in target:
-            if key.endswith('#'):
-                # auxiliary data parameters
-                key = key[:-1]
+            if key.startswith(name + ':'):
+                key = key.split(':')[1]
 
-            if key == name:
-                # item with no tag
-                tags.add(None)
-            
-            elif key.startswith(name + ':'):
-                # item with tag
-                tags.add(key.split(':')[1])
+                if key.endswith('#'):
+                    # auxiliary data parameters
+                    key = key[:-1]
+
+                tags.add(key)
 
         return tags
     
@@ -396,13 +361,8 @@ class SeisBP:
         self._read()
 
         for cha in self._traces[station]:
-            if tag:
-                if not cha.endswith(':' + tag):
-                    continue
-
-            else:
-                if ':' in cha:
-                    continue
+            if not cha.endswith(':' + tag):
+                continue
             
             # remove channel tag for trace ID
             cha_notag = cha.split(':')[0]
@@ -428,7 +388,7 @@ class SeisBP:
 
         raise KeyError(f'trace {station}.{cmp or ""} not found')
     
-    def _write(self, key: str, data: np.ndarray):
+    def _write(self, key: str, data: np.ndarray, tag: str):
         end_step = False
         self._nbytes += data.nbytes
 
@@ -437,7 +397,7 @@ class SeisBP:
             end_step=True
             self._nbytes = 0
 
-        self._bp.write(key, data, count=data.shape, end_step=end_step)
+        self._bp.write(f'{key}:{tag}', data, count=data.shape, end_step=end_step)
 
     def _write_event(self, item: Event, tag: str) -> str:
         # get event name
@@ -451,17 +411,12 @@ class SeisBP:
             raise ValueError(f'{item} does not have a valid name')
         
         # event name with tag
-        key_notag = key
-
-        if tag:
-            key += ':' + tag
-
         with BytesIO() as b:
             item.write(b, format='quakeml')
             b.seek(0, 0)
-            self._write(key, np.frombuffer(b.read(), dtype=np.dtype('byte')))
+            self._write(key, np.frombuffer(b.read(), dtype=np.dtype('byte')), tag)
         
-        return key_notag
+        return key
 
     def _write_station(self, item: Inventory, tag: str) -> tp.List[str]:
         if len(item.networks) != 1 or len(item.networks[0].stations) != 1:
@@ -474,30 +429,24 @@ class SeisBP:
             
             return keys
         
-        key = key_notag = f'{item.networks[0].code}.{item.networks[0].stations[0].code}'
-
-        if tag:
-            key += ':' + tag
+        key = f'{item.networks[0].code}.{item.networks[0].stations[0].code}'
 
         with BytesIO() as b:
             item.write(b, format='stationxml')
             b.seek(0, 0)
-            self._write(key, np.frombuffer(b.read(), dtype=np.dtype('byte')))
+            self._write(key, np.frombuffer(b.read(), dtype=np.dtype('byte')), tag)
 
-        return [key_notag]
+        return [key]
 
     def _write_trace(self, item: Trace, tag: str) -> str:
         from obspy.io.sac import SACTrace
 
-        key = key_notag = f'{item.stats.network}.{item.stats.station}.{item.stats.location}.{item.stats.channel}'
-
-        if tag:
-            key += ':' + tag
+        key = f'{item.stats.network}.{item.stats.station}.{item.stats.location}.{item.stats.channel}'
 
         with BytesIO() as b:
             SACTrace.from_obspy_trace(item).write(b, headonly=True)
             b.seek(0, 0)
-            self._write(key + '#', np.frombuffer(b.read(), dtype=np.dtype('byte')))
-            self._write(key, item.data)
+            self._write(key + '#', np.frombuffer(b.read(), dtype=np.dtype('byte')), tag)
+            self._write(key, item.data, tag)
 
-        return key_notag
+        return key

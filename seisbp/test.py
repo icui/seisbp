@@ -40,16 +40,17 @@ def test_read():
         assert bp.events() == bp.events('tag_a') == {'C201107191935A'}
         assert bp.stations() == bp.stations('tag_c') == {'AZ.FRD'}
         assert bp.streams() == bp.streams('tag_b') == {'AZ.FRD'}
+        print(bp.traces('AZ.FRD'))
         assert bp.traces('AZ.FRD') == {'.BHZ'}
         assert bp.traces('AZ.FRD', 'tag_b') == {'S3.BHZ'}
         assert bp.auxiliaries() == {'aux', 'aux2'}
         assert bp.auxiliaries('tag_d') == {'aux3'}
 
         # read tags
-        assert bp.event_tags('C201107191935A') == {None, 'tag_a'}
-        assert bp.station_tags('AZ.FRD') == {None, 'tag_c'}
-        assert bp.trace_tags('AZ.FRD') == {None, 'tag_b'}
-        assert bp.auxiliary_tags('aux') == {None}
+        assert bp.event_tags('C201107191935A') == {'', 'tag_a'}
+        assert bp.station_tags('AZ.FRD') == {'', 'tag_c'}
+        assert bp.trace_tags('AZ.FRD') == {'', 'tag_b'}
+        assert bp.auxiliary_tags('aux') == {''}
         assert bp.auxiliary_tags('aux3') == {'tag_d'}
 
         # read event data
