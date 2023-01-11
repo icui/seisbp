@@ -10,7 +10,7 @@ python -m seisbp.test
 ```
 
 ### Basic usage
-Write (see ```seisbp/test_data```)
+Write (see ```seisbp/test.py```)
 ```py
 from obspy import read, read_events, read_inventory
 
@@ -40,19 +40,19 @@ Read
 ```py
 with SeisBP('test.bp', 'r') as bp:
    # read indexing
-   assert bp.events() == bp.events('tag_a') == set(['C201107191935A'])
-   assert bp.stations() == bp.stations('tag_c') == set(['AZ.FRD'])
-   assert bp.streams() == bp.streams('tag_b') == set(['AZ.FRD'])
-   assert bp.traces() == bp.traces('tag_b') == set(['AZ.FRD..BHZ'])
-   assert set(bp.auxiliaries()) == set(('aux', 'aux2'))
-   assert bp.auxiliaries('tag_d') == set(['aux3'])
+   assert bp.events() == bp.events('tag_a') == {'C201107191935A'}
+   assert bp.stations() == bp.stations('tag_c') == {'AZ.FRD'}
+   assert bp.streams() == bp.streams('tag_b') == {'AZ.FRD'}
+   assert bp.traces() == bp.traces('tag_b') == {'AZ.FRD..BHZ'}
+   assert bp.auxiliaries() == {'aux', 'aux2'}
+   assert bp.auxiliaries('tag_d') == {'aux3'}
 
    # read tags
-   assert bp.event_tags('C201107191935A') == set((None, 'tag_a'))
-   assert bp.station_tags('AZ.FRD') == set((None, 'tag_c'))
-   assert bp.trace_tags('AZ.FRD') == set((None, 'tag_b'))
-   assert bp.auxiliary_tags('aux') == set([None])
-   assert bp.auxiliary_tags('aux3') == set(['tag_d'])
+   assert bp.event_tags('C201107191935A') == {None, 'tag_a'}
+   assert bp.station_tags('AZ.FRD') == {None, 'tag_c'}
+   assert bp.trace_tags('AZ.FRD') == {None, 'tag_b'}
+   assert bp.auxiliary_tags('aux') == {None}
+   assert bp.auxiliary_tags('aux3') == {'tag_d'}
 
    # read event data
    assert bp.read_event('C201107191935A') == read_events('C201107191935A')[0]
@@ -66,8 +66,8 @@ with SeisBP('test.bp', 'r') as bp:
    tr = read('AZ.GRD.BHZ.sac')
    tr_tag_b = read('AZ.GRD.BHZ.tag_b.sac')
 
-   assert bp.traces_of_station('AZ.FRD') == set(['AZ.FRD..BHZ'])
-   assert bp.components('AZ.FRD') == set(['Z'])
+   assert bp.traces_of_station('AZ.FRD') == {'AZ.FRD..BHZ'}
+   assert bp.components('AZ.FRD') == {'Z'}
    assert bp.read_trace(bp.trace_id('AZ.FRD')) == bp.read_stream('AZ.FRD')[0]
    assert all(bp.read_trace(bp.trace_id('AZ.FRD')).data == tr[0].data)
    assert all(bp.read_trace(bp.trace_id('AZ.FRD', None, 'tag_b')).data == tr_tag_b[0].data)

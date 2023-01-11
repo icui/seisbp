@@ -213,7 +213,7 @@ class SeisBP:
     
     def traces_of_station(self, station: str, tag: str | None = None) -> tp.Set[str]:
         """Get trace IDs of a station."""
-        return set(f'{station}.{cha}' for cha in self.channels(station, tag))
+        return {f'{station}.{cha}' for cha in self.channels(station, tag)}
 
     def channels(self, station: str, tag: str | None = None) -> tp.Set[str]:
         """Get channels of a station."""
@@ -232,7 +232,7 @@ class SeisBP:
 
     def components(self, station: str, tag: str | None = None) -> tp.Set[str]:
         """Get components of a station."""
-        return set(cha[-1] for cha in self.channels(station, tag))
+        return {cha[-1] for cha in self.channels(station, tag)}
     
     def auxiliaries(self, tag: str | None = None) -> tp.Set[str]:
         """Get auxiliary data keys."""
