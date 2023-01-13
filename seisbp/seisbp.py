@@ -68,9 +68,7 @@ class SeisBP:
                     tag = ''
                 
                 else:
-                    k = key.split('#')
-                    tag = k[-1]
-                    key = '#'.join(k[:-1])
+                    key, tag = key.split('#')
 
                 if key.startswith('$'):
                     # auxiliary data or parameters
@@ -165,6 +163,9 @@ class SeisBP:
 
     def write_auxiliary(self, key: str, item: tp.Tuple[np.ndarray, dict] | dict | np.ndarray, tag: str = '') -> str:
         """Write auxiliary data and/or parameters."""
+        if '#' in key:
+            raise KeyError('`#` is not allowed in auxiliary key')
+
         data: np.ndarray | None = None
         params: dict | None = None
 
@@ -428,9 +429,9 @@ class SeisBP:
             for net in item.networks:
                 for sta in net.stations:
                     keys += self._write_station(item.select(net.code, sta.code), tag)
-            
+
             return keys
-        
+
         key = f'{item.networks[0].code}.{item.networks[0].stations[0].code}'
 
         with BytesIO() as b:
