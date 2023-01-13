@@ -282,7 +282,7 @@ class SeisBP:
         traces: tp.List[Trace] = []
 
         for cha in self.traces(station, None, tag):
-            for tr in self.read_traces(station, cha, False, tag):
+            for tr in self.read_traces(station, cha, tag=tag):
                 traces.append(tr)
 
         if len(traces) == 0:
@@ -291,12 +291,15 @@ class SeisBP:
         return Stream(traces)
 
     @tp.overload
-    def read_traces(self, station: str, filt: str | None = None, data_only: tp.Literal[True] = True, tag: str = '') -> tp.List[np.ndarray]: ...
+    def read_traces(self, station: str, filt: str | None = None, mode: tp.Literal['trace'] = 'trace', tag: str = '') -> Stream: ...
 
     @tp.overload
-    def read_traces(self, station: str, filt: str | None = None, data_only: tp.Literal[False] = False, tag: str = '') -> Stream: ...
+    def read_traces(self, station: str, filt: str | None = None, mode: tp.Literal['data'] = 'data', tag: str = '') -> tp.List[np.ndarray]: ...
 
-    def read_traces(self, station: str, filt: str | None = None, data_only: bool = False, tag: str = '') -> Stream | tp.List[np.ndarray]:
+    @tp.overload
+    def read_traces(self, station: str, filt: str | None = None, mode: tp.Literal['params'] = 'params', tag: str = '') -> tp.List[dict]: ...
+
+    def read_traces(self, station: str, filt: str | None = None, mode: tp.Literal['data', 'params', 'trace'] = 'trace', tag: str = '') -> Stream | tp.List[np.ndarray] | tp.List[dict]:
         """Read stream or data of a station channel."""
         from obspy import UTCDateTime
 
@@ -304,37 +307,32 @@ class SeisBP:
 
         for cha in self.traces(station, filt, tag):
             for s, sr in self._traces[tag][station][cha]:
-                stats = {'starttime': UTCDateTime(float(s)), 'sampling_rate': float(sr)}
-                data = self._read(f'{station}.{cha}_{s}_{sr}', tag)
-                traces.append(data if data_only else Trace(data, stats))
+                trace_id = f'{station}.{cha}_{s}_{sr}'
 
-        return traces if data_only else Stream(traces)
+                if mode == 'params':
+                    # read trace parameters
+                    traces.append(self._read_params(trace_id, tag))
+                
+                else:
+                    # read trace data and stats
+                    data = self._read(trace_id, tag)
 
-    def read_params(self, station: str, filt: str | None = None, tag: str = '') -> tp.List[dict]:
-        """Read the data of the first trace that matches the arguments."""
-        params = []
+                    if mode == 'trace':
+                        stats = {'starttime': UTCDateTime(float(s)), 'sampling_rate': float(sr)}
+                        traces.append(Trace(data, stats))
+                    
+                    else:
+                        traces.append(data)
 
-        for cha in self.traces(station, filt, tag):
-            for s, sr in self._traces[tag][station][cha]:
-                params.append(self._read_params(f'{station}.{cha}_{s}_{sr}', tag))
-
-        return params
+        return Stream(traces) if mode == 'trace' else traces
     
     def read_trace_params(self, trace: Trace, tag: str = '') -> dict:
         """Read the parameters of a trace."""
         return self._read_params(self._trace_id(trace), tag)
 
-    def read_auxiliary(self, key: str, tag: str = '') -> tp.Tuple[np.ndarray | None, dict | None]:
+    def read_auxiliary(self, key: str, tag: str = '') -> tp.Tuple[np.ndarray, dict]:
         """Read auxiliary data and parameters."""
-        return self.read_auxiliary_data(key, tag), self.read_auxiliary_params(key, tag)
-
-    def read_auxiliary_data(self, key: str, tag: str = '') -> np.ndarray | None:
-        """Read auxiliary data."""
-        return self._read('$' + key, tag)
-
-    def read_auxiliary_params(self, key: str, tag: str = '') -> dict | None:
-        """Read auxiliary parameters."""
-        return self._read_params('$' + key, tag)
+        return self._read('$' + key, tag), self._read_params('$' + key, tag)
 
     def close(self):
         """Close file."""
