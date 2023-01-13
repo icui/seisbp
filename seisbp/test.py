@@ -39,16 +39,16 @@ def test_read():
         # read indexing
         assert bp.events() == bp.events('tag_a') == {'C201107191935A'}
         assert bp.stations() == bp.stations('tag_c') == {'AZ.FRD'}
-        assert bp.streams() == bp.streams('tag_b') == {'AZ.FRD'}
+        assert bp.waveforms() == bp.waveforms('tag_b') == {'AZ.FRD'}
         assert bp.traces('AZ.FRD') == {'.BHZ'}
-        assert bp.traces('AZ.FRD', 'tag_b') == {'S3.BHZ'}
+        assert bp.traces('AZ.FRD', tag='tag_b') == {'S3.BHZ'}
         assert bp.auxiliaries() == {'aux', 'aux2'}
         assert bp.auxiliaries('tag_d') == {'aux3'}
 
         # read tags
         assert bp.event_tags('C201107191935A') == {'', 'tag_a'}
         assert bp.station_tags('AZ.FRD') == {'', 'tag_c'}
-        assert bp.trace_tags('AZ.FRD') == {'', 'tag_b'}
+        assert bp.waveform_tags('AZ.FRD') == {'', 'tag_b'}
         assert bp.auxiliary_tags('aux') == {''}
         assert bp.auxiliary_tags('aux3') == {'tag_d'}
 
@@ -66,12 +66,13 @@ def test_read():
 
         assert bp.traces('AZ.FRD') == {'.BHZ'}
         assert bp.components('AZ.FRD') == {'Z'}
-        assert bp.read_trace('AZ.FRD', '.BHZ') == bp.read_stream('AZ.FRD')[0]
-        assert all(bp.read_trace('AZ.FRD').data == tr[0].data)
-        assert all(bp.read_trace('AZ.FRD', None, 'tag_b').data == tr_tag_b[0].data)
-        assert all(bp.read_trace('AZ.FRD', 'Z', 'tag_b').data == tr_tag_b[0].data)
-        assert all(bp.read_trace('AZ.FRD', 'S3.BHZ', 'tag_b').data == tr_tag_b[0].data)
-        assert all(bp.read_trace('AZ.FRD', 'BHZ', 'tag_b').data == tr_tag_b[0].data)
+        assert bp.read_traces('AZ.FRD', '.BHZ')[0].stats.endtime == bp.read_waveforms('AZ.FRD')[0].stats.endtime
+        assert all(bp.read_traces('AZ.FRD')[0].data == tr[0].data)
+        assert all(bp.read_traces('AZ.FRD', None, 'tag_b')[0].data == tr_tag_b[0].data)
+        assert all(bp.read_traces('AZ.FRD', 'Z', 'tag_b')[0].data == tr_tag_b[0].data)
+        assert all(bp.read_traces('AZ.FRD', 'S3.BHZ', 'tag_b')[0].data == tr_tag_b[0].data)
+        assert all(bp.read_traces('AZ.FRD', 'BHZ', 'tag_b')[0].data == tr_tag_b[0].data)
+        print(3)
 
         # read auxiliary data
         assert all(bp.read_auxiliary_data('aux') == tr[0].data)

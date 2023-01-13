@@ -27,17 +27,17 @@ class SeisBP:
     # maximum write size in MB before end_step
     _buffer_size: float = 1024.0
 
-    # set of event names
-    _events: tp.Set[str]
+    # dict of tag -> event names
+    _events: tp.Dict[str, tp.Set[str]]
 
-    # set of station names
-    _stations: tp.Set[str]
+    # dict of tag -> station names
+    _stations: tp.Dict[str, tp.Set[str]]
 
-    # dict of trace stations -> trace components
-    _traces: tp.Dict[str, tp.Set[str]]
+    # dict of tag -> trace stations -> trace location and channel -> trace start and end time
+    _traces: tp.Dict[str, tp.Dict[str, tp.Dict[str, tp.Set[tp.Tuple[str, str]]]]]
 
-    # set of auxiliary data keys
-    _auxiliaries: tp.Set[str]
+    # dict of tag -> auxiliary data keys
+    _auxiliaries: tp.Dict[str, tp.Set[str]]
 
     # MPI communicator
     _comm: tp.Optional[Intracomm] = None
@@ -58,46 +58,67 @@ class SeisBP:
         # index of all items in read mode
         if mode == 'r':
             # keys of event, station, trace and auxiliary data
-            self._events = set()
-            self._stations = set()
+            self._events = {}
+            self._stations = {}
             self._traces = {}
-            self._auxiliaries = set()
+            self._auxiliaries = {}
 
             for key in self._bp.available_variables():
-                if ':' not in key:
-                    key += ':'
+                if '#' not in key:
+                    tag = ''
+                
+                else:
+                    k = key.split('#')
+                    tag = k[-1]
+                    key = '#'.join(k[:-1])
 
                 if key.startswith('$'):
                     # auxiliary data or parameters
-                    self._auxiliaries.add(key[1:])
-                
+                    if tag not in self._auxiliaries:
+                        self._auxiliaries[tag] = set()
+
+                    self._auxiliaries[tag].add(key[1:])
+
                 else:
                     # event, station or trace data
-                    if '#:' in key:
-                        # skip trace header because it always binds to trace data
-                        continue
-
-                    ndots = key.split(':')[0].count('.')
+                    ndots = key.count('.')
 
                     if ndots == 0:
                         # event data (e.g. C051200D)
-                        self._events.add(key)
+                        if tag not in self._events:
+                            self._events[tag] = set()
+
+                        self._events[tag].add(key)
                     
                     elif ndots == 1:
                         # station data (e.g. II.OBN)
-                        self._stations.add(key)
+                        if tag not in self._stations:
+                            self._stations[tag] = set()
+
+                        self._stations[tag].add(key)
                     
-                    elif ndots == 3:
-                        # trace data (e.g. IU.PET.S3.MXZ)
-                        net, sta, loc, cha = key.split('.')
+                    else:
+                        # trace data (e.g. HT.LIT.S3.MXN_1311103547.9249_1.6)
+                        try:
+                            tr, s, sr = key.split('_')
+                            net, sta, loc, cha = tr.split('.')
+                        
+                        except:
+                            continue
 
                         station = f'{net}.{sta}'
                         channel = f'{loc}.{cha}'
 
+                        if tag not in self._traces:
+                            self._traces[tag] = {}
+
                         if station not in self._traces:
-                            self._traces[station] = set()
-                        
-                        self._traces[station].add(channel)
+                            self._traces[tag][station] = {}
+
+                        if channel not in self._traces[tag][station]:
+                            self._traces[tag][station][channel] = set()
+
+                        self._traces[tag][station][channel].add((s, sr))
 
     def __enter__(self):
         return self
@@ -116,35 +137,35 @@ class SeisBP:
         """Write seismic auxiliary data."""
         if self._mode not in ('w', 'a'):
             raise PermissionError('file not opened in write or append mode')
-        
+
         if isinstance(item, (Stream, Catalog)):
             keys = []
 
             for it in item: # type: ignore
                 keys.append(self.write(it, tag))
-            
+
             return keys
-        
+
         if isinstance(item, Event):
             return self._write_event(item, tag)
-        
+
         if isinstance(item, Inventory):
             return self._write_station(item, tag)
-        
+
         if isinstance(item, Trace):
-            return self._write_trace(item, tag)
-        
+            trace_id = self._trace_id(item)
+            self._write(trace_id, item.data, tag)
+            return trace_id
+
         raise TypeError(f'unsupported item {item}')
-    
+
     def write_auxiliary(self, key: str, item: tp.Tuple[np.ndarray, dict] | dict | np.ndarray, tag: str = '') -> str:
         """Write auxiliary data and/or parameters."""
-        if ':' in key:
-            raise KeyError('`:` is not allowed in data key')
-
         data: np.ndarray | None = None
         params: dict | None = None
 
         if isinstance(item, tuple):
+            # item is (data, params)
             data = item[0]
             params = item[1]
 
@@ -152,98 +173,90 @@ class SeisBP:
                 raise TypeError(f'unsupported item {item}')
         
         elif isinstance(item, np.ndarray):
+            # item contains data only
             data = item
         
         elif isinstance(item, dict):
+            # item contains parameters only
             params = item
         
         else:
             raise TypeError(f'unsupported item {item}')
-        
-        if data is None:
-            data = np.array([])
-        
-        if params is None:
-            params = {}
 
-        self._write('$' + key, data, tag)
-
-        if tag:
-            key += ':' + tag
-
-        self._bp.write_attribute('params', json.dumps(params), '$' + key)
+        # write data and parameters
+        self._write('$' + key, data if data is not None else np.array([]), tag)
+        self._write_params('$' + key, params or {}, tag)
 
         return key
 
     def events(self, tag: str = '') -> tp.Set[str]:
         """Get names of events."""
-        return self._find(self._events, tag)
+        self._read_mode()
+        return set(self._events.get(tag) or [])
 
     def stations(self, tag: str = '') -> tp.Set[str]:
         """Get names of stations with StationXML."""
         # stations with StationXML
-        return self._find(self._stations, tag)
+        self._read_mode()
+        return set(self._stations.get(tag) or [])
 
-    def streams(self, tag: str = '') -> tp.Set[str]:
+    def waveforms(self, tag: str = '') -> tp.Set[str]:
         """Get names of stations with traces."""
         self._read_mode()
-
-        stations = set()
-
-        for sta, chas in self._traces.items():
-            for cha in chas:
-                if cha.endswith(':' + tag):
-                    stations.add(sta)
-                    break
-
-        return stations
-
-    def traces(self, station: str, tag: str = '') -> tp.Set[str]:
-        """Get trace identifiers (location + channel) of a station."""
-        self._read_mode()
-
-        traces = set()
-
-        for cha in self._traces[station]:
-            if cha.endswith(':' + tag):
-                traces.add(cha.split(':')[0])
-
-        return traces
-
-    def components(self, station: str, tag: str = '') -> tp.Set[str]:
-        """Get components of a station."""
-        return {cha[-1] for cha in self.traces(station, tag)}
+        return set((self._traces.get(tag) or {}).keys())
     
     def auxiliaries(self, tag: str = '') -> tp.Set[str]:
         """Get auxiliary data keys."""
-        return self._find(self._auxiliaries, tag)
-    
-    def event_tags(self, event: str) -> tp.Set[str]:
-        """Get tag names of an event."""
-        return self._tag(self._events, event)
-    
-    def station_tags(self, station: str):
-        """Get StationXML tag names of a station."""
-        return self._tag(self._stations, station)
-    
-    def trace_tags(self, station: str) -> tp.Set[str]:
-        """Get trace tag names of a station."""
+        self._read_mode()
+        return set(self._auxiliaries.get(tag) or [])
+
+    def traces(self, station: str, filt: str | None = None, tag: str = '') -> tp.Set[str]:
+        """Get trace identifiers (location + channel) of a station."""
         self._read_mode()
 
-        tags = set()
+        chas = set()
 
-        for cha in self._traces[station]:
-            if ':' in cha:
-                tags.add(cha.split(':')[1])
+        for cha in (self._traces.get(tag) or {}).get(station) or {}:
+            if filt is not None:
+                # skip traces without matching channel
+                if len(filt) == 1:
+                    # filt is component code
+                    if cha[-1] != filt:
+                        continue
+                
+                elif '.' in filt:
+                    # filt is f'{location}.{channel}'
+                    if cha != filt:
+                        continue
+                
+                else:
+                    # filt is channel code
+                    if cha.split('.')[-1] != filt:
+                        continue
             
-            else:
-                tags.add(None)
-        
-        return tags
+            chas.add(cha)
+
+        return chas
+
+    def components(self, station: str, tag: str = '') -> tp.Set[str]:
+        """Get components of a station."""
+        return {cha[-1] for cha in self.traces(station, None, tag)}
     
+    def event_tags(self, event: str | None = None) -> tp.Set[str]:
+        """Get tag names of an event."""
+        return self._tags(self._events, event)
+
+    def station_tags(self, station: str | None = None):
+        """Get StationXML tag names of a station."""
+        return self._tags(self._stations, station)
+
+    def waveform_tags(self, station: str) -> tp.Set[str]:
+        """Get trace tag names of a station."""
+        return self._tags(self._traces, station)
+
     def auxiliary_tags(self, key: str):
         """Get tag names of auxiliary data."""
-        return self._tag(self._auxiliaries, key)
+        return self._tags(self._auxiliaries, key)
 
     def read_event(self, event: str, tag: str = '') -> Event:
         """Read an event."""
@@ -259,54 +272,63 @@ class SeisBP:
         with BytesIO(self._read(station, tag)) as b:
             return read_inventory(b)
 
-    def read_stream(self, station: str, tag: str = '') -> Stream:
-        """Read a stream."""
-        traces = []
+    def read_waveforms(self, station: str, tag: str = '') -> Stream:
+        """Read a stream of a station."""
+        traces: tp.List[Trace] = []
 
-        for cha in self.traces(station):
-            traces.append(self.read_trace(station, cha, tag))
-        
+        for cha in self.traces(station, None, tag):
+            for tr in self.read_traces(station, cha, tag):
+                traces.append(tr)
+
         if len(traces) == 0:
             raise KeyError(f'{station} not found')
-        
+
         return Stream(traces)
 
-    def read_trace(self, station: str, cha: str | None = None, tag: str = '') -> Trace:
-        """Read a trace."""
-        return Trace(self.read_trace_data(station, cha, tag), self.read_trace_header(station, cha, tag))
+    def read_traces(self, station: str, filt: str | None = None, tag: str = '') -> Stream:
+        """Read a stream of a station channel."""
+        from obspy import UTCDateTime
 
-    def read_trace_data(self, station: str, cha: str | None = None, tag: str = '') -> np.ndarray:
-        """Read a trace data."""
-        return self._read(self._find_trace(station, cha, tag), tag)
+        traces = []
 
-    def read_trace_header(self, station: str, cha: str | None = None, tag: str = '') -> Stats:
-        """Read a trace header."""
-        from obspy.io.sac import SACTrace
+        for cha in self.traces(station, filt, tag):
+            for s, sr in self._traces[tag][station][cha]:
+                stats = {'starttime': UTCDateTime(float(s)), 'sampling_rate': float(sr)}
+                traces.append(Trace(self._read(f'{station}.{cha}_{s}_{sr}', tag), stats))
 
-        with BytesIO(self._read(self._find_trace(station, cha, tag) + '#', tag)) as b:
-            return SACTrace.read(b, headonly=True).to_obspy_trace().stats
-    
+        return Stream(traces)
+
+    def read_traces_data(self, station: str, cha: str | None = None, tag: str = '') -> tp.List[np.ndarray]:
+        """Read the data of the first trace that matches the arguments."""
+        data = []
+
+        for cha in self.traces(station, cha, tag):
+            for s, sr in self._traces[tag][station][cha]:
+                data.append(self._read(f'{station}.{cha}_{s}_{sr}', tag))
+
+        return data
+
+    def read_traces_params(self, station: str, cha: str | None = None, tag: str = '') -> tp.List[dict]:
+        """Read the data of the first trace that matches the arguments."""
+        params = []
+
+        for cha in self.traces(station, cha, tag):
+            for s, sr in self._traces[tag][station][cha]:
+                params.append(self._read_params(f'{station}.{cha}_{s}_{sr}', tag))
+
+        return params
+
     def read_auxiliary(self, key: str, tag: str = '') -> tp.Tuple[np.ndarray | None, dict | None]:
         """Read auxiliary data and parameters."""
         return self.read_auxiliary_data(key, tag), self.read_auxiliary_params(key, tag)
-    
+
     def read_auxiliary_data(self, key: str, tag: str = '') -> np.ndarray | None:
         """Read auxiliary data."""
-        if f'{key}:{tag}' in self._auxiliaries:
-            # return data if it exists
-            return self._read('$' + key, tag)
-        
-        raise KeyError(f'{key} not found')
-    
+        return self._read('$' + key, tag)
+
     def read_auxiliary_params(self, key: str, tag: str = '') -> dict | None:
         """Read auxiliary parameters."""
-        if f'{key}:{tag}' in self._auxiliaries:
-            if tag:
-                key += ':' + tag
-
-            return json.loads(self._bp.read_attribute_string('params', '$' + key)[0])
-        
-        raise KeyError(f'{key} not found')
+        return self._read_params('$' + key, tag)
 
     def close(self):
         """Close file."""
@@ -318,80 +340,39 @@ class SeisBP:
         if self._mode != 'r':
             raise PermissionError('file not opened in read mode')
     
-    def _find(self, target: tp.Set[str], tag: str) -> tp.Set[str]:
+    def _tags(self, target: tp.Dict[str, tp.Any], item: str | None) -> tp.Set[str]:
         self._read_mode()
 
-        keys = set()
+        if item is None:
+            # get all tags in the dataset
+            return set(target.keys())
 
-        for key in target:
-            # items with tag
-            if key.endswith(':' + tag):
-                key = key.split(':')[0]
-                
-                if key.endswith('#'):
-                    # auxiliary data parameters
-                    key = key[:-1]
-
-                keys.add(key)
-        
-        return keys
-    
-    def _tag(self, target: tp.Set[str], name: str) -> tp.Set[str]:
-        self._read_mode()
-
+        # get tags for a specific item
         tags = set()
 
-        for key in target:
-            if key.startswith(name + ':'):
-                key = key.split(':')[1]
-
-                if key.endswith('#'):
-                    # auxiliary data parameters
-                    key = key[:-1]
-
-                tags.add(key)
+        for tag, items in target.items():
+            if item in items:
+                tags.add(tag)
 
         return tags
-    
-    def _find_trace(self, station: str, cmp: str | None, tag: str) -> str:
-        self._read_mode()
 
-        for cha in self._traces[station]:
-            if not cha.endswith(':' + tag):
-                continue
-            
-            # remove channel tag for trace ID
-            cha = cha.split(':')[0]
-
-            if cmp is not None:
-                # skip traces without matching component
-                if len(cmp) == 1:
-                    # cmp is component code
-                    if cha[-1] != cmp:
-                        continue
-                
-                elif '.' in cmp:
-                    # cmp is f'{location}.{channel}'
-                    if cha != cmp:
-                        continue
-                
-                else:
-                    # cmp is channel code
-                    if cha.split('.')[-1] != cmp:
-                        continue
-
-            return f'{station}.{cha}'
-
-        raise KeyError(f'trace {station}.{cmp or ""} not found')
-    
     def _read(self, key: str, tag: str):
         self._read_mode()
 
         if tag:
-            key += ':' + tag
-        
+            key += '#' + tag
+
         return self._bp.read(key)
-    
+
+    def _read_params(self, key: str, tag: str) -> dict:
+        self._read_mode()
+
+        if tag:
+            key += '#' + tag
+
+
+        return json.loads((self._bp.read_attribute_string('params', key) or ['{}'])[0])
+
     def _write(self, key: str, data: np.ndarray, tag: str):
         end_step = False
         self._nbytes += data.nbytes
@@ -400,11 +381,17 @@ class SeisBP:
             # end step when cache space is used up
             end_step=True
             self._nbytes = 0
-        
+
         if tag:
-            key += ':' + tag
+            key += '#' + tag
 
         self._bp.write(key, data, count=data.shape, end_step=end_step)
+
+    def _write_params(self, key: str, params: dict, tag: str):
+        if tag:
+            key += '#' + tag
+
+        self._bp.write_attribute('params', json.dumps(params), key)
 
     def _write_event(self, item: Event, tag: str) -> str:
         # get event name
@@ -445,15 +432,8 @@ class SeisBP:
 
         return [key]
 
-    def _write_trace(self, item: Trace, tag: str) -> str:
-        from obspy.io.sac import SACTrace
-
-        key = f'{item.stats.network}.{item.stats.station}.{item.stats.location}.{item.stats.channel}'
-
-        with BytesIO() as b:
-            SACTrace.from_obspy_trace(item).write(b, headonly=True)
-            b.seek(0, 0)
-            self._write(key + '#', np.frombuffer(b.read(), dtype=np.dtype('byte')), tag)
-            self._write(key, item.data, tag)
-
-        return key
+    def _trace_id(self, trace: Trace) -> str:
+        stats = trace.stats
+        s = stats.starttime.timestamp
+        sr = stats.sampling_rate
+        return f'{stats.network}.{stats.station}.{stats.location}.{stats.channel}_{s}_{sr}'
