@@ -66,7 +66,7 @@ class SeisBP:
             for key in self._bp.available_variables():
                 if '#' not in key:
                     tag = ''
-                
+
                 else:
                     key, tag = key.split('#')
 
@@ -87,20 +87,20 @@ class SeisBP:
                             self._events[tag] = set()
 
                         self._events[tag].add(key)
-                    
+
                     elif ndots == 1:
                         # station data (e.g. II.OBN)
                         if tag not in self._stations:
                             self._stations[tag] = set()
 
                         self._stations[tag].add(key)
-                    
+
                     else:
                         # trace data (e.g. HT.LIT.S3.MXN_1311103547.9249_1.6)
                         try:
                             tr, s, sr = key.split('_')
                             net, sta, loc, cha = tr.split('.')
-                        
+
                         except:
                             continue
 
