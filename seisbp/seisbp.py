@@ -158,6 +158,10 @@ class SeisBP:
             return trace_id
 
         raise TypeError(f'unsupported item {item}')
+    
+    def write_params(self, trace: Trace, params: dict, tag: str = ''):
+        """Write trace parameters."""
+        self._write_params(self._trace_id(trace), params, tag)
 
     def write_auxiliary(self, key: str, item: tp.Tuple[np.ndarray, dict] | dict | np.ndarray, tag: str = '') -> str:
         """Write auxiliary data and/or parameters."""
@@ -317,6 +321,10 @@ class SeisBP:
                 params.append(self._read_params(f'{station}.{cha}_{s}_{sr}', tag))
 
         return params
+    
+    def read_params(self, trace: Trace, tag: str = ''):
+        """Read the parameters of a trace."""
+        return self._read_params(self._trace_id(trace), tag)
 
     def read_auxiliary(self, key: str, tag: str = '') -> tp.Tuple[np.ndarray | None, dict | None]:
         """Read auxiliary data and parameters."""
