@@ -157,7 +157,7 @@ class SeisBP:
 
         raise TypeError(f'unsupported item {item}')
     
-    def write_params(self, trace: Trace, params: dict, tag: str = ''):
+    def write_trace_params(self, trace: Trace, params: dict, tag: str = ''):
         """Write trace parameters."""
         self._write_params(self._trace_id(trace), params, tag)
 
@@ -282,7 +282,7 @@ class SeisBP:
         traces: tp.List[Trace] = []
 
         for cha in self.traces(station, None, tag):
-            for tr in self.read_traces(station, cha, tag):
+            for tr in self.read_traces(station, cha, False, tag):
                 traces.append(tr)
 
         if len(traces) == 0:
@@ -290,8 +290,14 @@ class SeisBP:
 
         return Stream(traces)
 
-    def read_traces(self, station: str, filt: str | None = None, tag: str = '') -> Stream:
-        """Read a stream of a station channel."""
+    @tp.overload
+    def read_traces(self, station: str, filt: str | None = None, data_only: tp.Literal[True] = True, tag: str = '') -> tp.List[np.ndarray]: ...
+
+    @tp.overload
+    def read_traces(self, station: str, filt: str | None = None, data_only: tp.Literal[False] = False, tag: str = '') -> Stream: ...
+
+    def read_traces(self, station: str, filt: str | None = None, data_only: bool = False, tag: str = '') -> Stream | tp.List[np.ndarray]:
+        """Read stream or data of a station channel."""
         from obspy import UTCDateTime
 
         traces = []
@@ -299,31 +305,22 @@ class SeisBP:
         for cha in self.traces(station, filt, tag):
             for s, sr in self._traces[tag][station][cha]:
                 stats = {'starttime': UTCDateTime(float(s)), 'sampling_rate': float(sr)}
-                traces.append(Trace(self._read(f'{station}.{cha}_{s}_{sr}', tag), stats))
+                data = self._read(f'{station}.{cha}_{s}_{sr}', tag)
+                traces.append(data if data_only else Trace(data, stats))
 
-        return Stream(traces)
+        return traces if data_only else Stream(traces)
 
-    def read_traces_data(self, station: str, cha: str | None = None, tag: str = '') -> tp.List[np.ndarray]:
-        """Read the data of the first trace that matches the arguments."""
-        data = []
-
-        for cha in self.traces(station, cha, tag):
-            for s, sr in self._traces[tag][station][cha]:
-                data.append(self._read(f'{station}.{cha}_{s}_{sr}', tag))
-
-        return data
-
-    def read_traces_params(self, station: str, cha: str | None = None, tag: str = '') -> tp.List[dict]:
+    def read_params(self, station: str, filt: str | None = None, tag: str = '') -> tp.List[dict]:
         """Read the data of the first trace that matches the arguments."""
         params = []
 
-        for cha in self.traces(station, cha, tag):
+        for cha in self.traces(station, filt, tag):
             for s, sr in self._traces[tag][station][cha]:
                 params.append(self._read_params(f'{station}.{cha}_{s}_{sr}', tag))
 
         return params
     
-    def read_params(self, trace: Trace, tag: str = ''):
+    def read_trace_params(self, trace: Trace, tag: str = '') -> dict:
         """Read the parameters of a trace."""
         return self._read_params(self._trace_id(trace), tag)
 

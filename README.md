@@ -29,7 +29,7 @@ with SeisBP('test.bp', 'w') as bp:
 
    bp.write(tr)
    bp.write(tr_tag_b, 'tag_b')
-   bp.write_params(tr[0], {'trace_par': 'abc'})
+   bp.write_trace_params(tr[0], {'trace_par': 'abc'})
 
    # write auxiliary data
    bp.write_auxiliary('aux', tr[0].data)
@@ -72,13 +72,14 @@ with SeisBP('test.bp', 'r') as bp:
    assert bp.components('AZ.FRD') == {'Z'}
    assert bp.read_traces('AZ.FRD', '.BHZ')[0].stats.endtime == bp.read_waveforms('AZ.FRD')[0].stats.endtime
    assert all(bp.read_traces('AZ.FRD')[0].data == tr[0].data)
-   assert all(bp.read_traces_data('AZ.FRD')[0] == tr[0].data)
-   assert bp.read_traces_params('AZ.FRD')[0] == bp.read_params(tr[0]) == {'trace_par': 'abc'}
-   assert bp.read_params(tr[0], 'tag_b') == {}
-   assert all(bp.read_traces('AZ.FRD', None, 'tag_b')[0].data == tr_tag_b[0].data)
-   assert all(bp.read_traces('AZ.FRD', 'Z', 'tag_b')[0].data == tr_tag_b[0].data)
-   assert all(bp.read_traces('AZ.FRD', 'S3.BHZ', 'tag_b')[0].data == tr_tag_b[0].data)
-   assert all(bp.read_traces('AZ.FRD', 'BHZ', 'tag_b')[0].data == tr_tag_b[0].data)
+   assert all(bp.read_traces('AZ.FRD', data_only=True)[0] == tr[0].data)
+   assert bp.read_params('AZ.FRD')[0] == bp.read_trace_params(tr[0]) == {'trace_par': 'abc'}
+   assert bp.read_params('AZ.FRD', tag='tag_b') == [{}]
+   assert bp.read_trace_params(tr[0], tag='tag_b') == {}
+   assert all(bp.read_traces('AZ.FRD', None, tag='tag_b')[0].data == tr_tag_b[0].data)
+   assert all(bp.read_traces('AZ.FRD', 'Z', tag='tag_b')[0].data == tr_tag_b[0].data)
+   assert all(bp.read_traces('AZ.FRD', 'S3.BHZ', tag='tag_b')[0].data == tr_tag_b[0].data)
+   assert all(bp.read_traces('AZ.FRD', 'BHZ', False, 'tag_b')[0].data == tr_tag_b[0].data)
 
    # read auxiliary data
    assert all(bp.read_auxiliary_data('aux') == tr[0].data)
