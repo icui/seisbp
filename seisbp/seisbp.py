@@ -11,6 +11,7 @@ if tp.TYPE_CHECKING:
     from adios2 import File # type: ignore
     from mpi4py.MPI import Intracomm
     from obspy.core.trace import Stats
+    from obspy.core.util import AttribDict
 
 
 class SeisBP:
@@ -34,7 +35,7 @@ class SeisBP:
     _stations: tp.Dict[str, tp.Set[str]]
 
     # dict of tag -> trace stations -> trace location and channel -> trace start and end time
-    _traces: tp.Dict[str, tp.Dict[str, tp.Dict[str, tp.Set[tp.Tuple[str, str]]]]]
+    _traces: tp.Dict[str, tp.Dict[str, tp.Dict[str, tp.Set[str]]]]
 
     # dict of tag -> auxiliary data keys
     _auxiliaries: tp.Dict[str, tp.Set[str]]
@@ -95,14 +96,9 @@ class SeisBP:
 
                         self._stations[tag].add(key)
 
-                    else:
-                        # trace data (e.g. HT.LIT.S3.MXN_1311103547.9249_1.6)
-                        try:
-                            tr, s, sr = key.split('_')
-                            net, sta, loc, cha = tr.split('.')
-
-                        except:
-                            continue
+                    elif ndots == 4:
+                        # trace data (e.g. HT.LIT.S3.MXN.13111035479249_13126035479249)
+                        net, sta, loc, cha, ts = key.split('.')
 
                         station = f'{net}.{sta}'
                         channel = f'{loc}.{cha}'
@@ -116,7 +112,7 @@ class SeisBP:
                         if channel not in self._traces[tag][station]:
                             self._traces[tag][station][channel] = set()
 
-                        self._traces[tag][station][channel].add((s, sr))
+                        self._traces[tag][station][channel].add(ts)
 
     def __enter__(self):
         return self
@@ -151,15 +147,9 @@ class SeisBP:
             return self._write_station(item, tag)
 
         if isinstance(item, Trace):
-            trace_id = self._trace_id(item)
-            self._write(trace_id, item.data, tag)
-            return trace_id
+            return self._write_trace(item, tag)
 
         raise TypeError(f'unsupported item {item}')
-    
-    def write_trace_params(self, trace: Trace, params: dict, tag: str = ''):
-        """Write trace parameters."""
-        self._write_params(self._trace_id(trace), params, tag)
 
     def write_auxiliary(self, key: str, item: tp.Tuple[np.ndarray, dict] | dict | np.ndarray, tag: str = '') -> str:
         """Write auxiliary data and/or parameters."""
@@ -205,23 +195,18 @@ class SeisBP:
         self._read_mode()
         return set(self._stations.get(tag) or [])
 
-    def waveforms(self, tag: str = '') -> tp.Set[str]:
-        """Get names of stations with traces."""
+    def stations_with_trace(self, tag: str = '') -> tp.Set[str]:
+        """Get names of stations with trace data."""
         self._read_mode()
         return set((self._traces.get(tag) or {}).keys())
-    
-    def auxiliaries(self, tag: str = '') -> tp.Set[str]:
-        """Get auxiliary data keys."""
-        self._read_mode()
-        return set(self._auxiliaries.get(tag) or [])
 
     def traces(self, station: str, filt: str | None = None, tag: str = '') -> tp.Set[str]:
-        """Get trace identifiers (location + channel) of a station."""
+        """Get trace IDs in a station or channel."""
         self._read_mode()
 
-        chas = set()
+        traces = set()
 
-        for cha in (self._traces.get(tag) or {}).get(station) or {}:
+        for cha, tss in ((self._traces.get(tag) or {}).get(station) or {}).items():
             if filt is not None:
                 # skip traces without matching channel
                 if len(filt) == 1:
@@ -239,14 +224,37 @@ class SeisBP:
                     if cha.split('.')[-1] != filt:
                         continue
             
-            chas.add(cha)
+            for ts in tss:
+                traces.add(f'{station}.{cha}.{ts}')
 
-        return chas
+        return traces
+
+    def channels(self, station: str, tag: str = '') -> tp.Set[str]:
+        """Get channels of a station."""
+        self._read_mode()
+        return set(((self._traces.get(tag) or {}).get(station) or {}).keys())
 
     def components(self, station: str, tag: str = '') -> tp.Set[str]:
         """Get components of a station."""
-        return {cha[-1] for cha in self.traces(station, None, tag)}
-    
+        return {cha[-1] for cha in self.channels(station, tag)}
+
+    def auxiliaries(self, tag: str = '') -> tp.Set[str]:
+        """Get auxiliary data keys."""
+        self._read_mode()
+        return set(self._auxiliaries.get(tag) or [])
+
+    def trace_id(self, trace: Trace) -> str:
+        """Get the ID of a trace."""
+        stats = trace.stats
+        channel_id = f'{stats.network}.{stats.station}.{stats.location}.{stats.channel}'
+
+        # start and endtime in microseconds
+        stats = trace.stats
+        s = int(round(stats.starttime.ns / 1000))
+        e = int(round(stats.endtime.ns / 1000))
+
+        return  f'{channel_id}.{s}_{e}'
+
     def event_tags(self, event: str | None = None) -> tp.Set[str]:
         """Get tag names of an event."""
         return self._tags(self._events, event)
@@ -255,7 +263,7 @@ class SeisBP:
         """Get StationXML tag names of a station."""
         return self._tags(self._stations, station)
 
-    def waveform_tags(self, station: str) -> tp.Set[str]:
+    def trace_tags(self, station: str) -> tp.Set[str]:
         """Get trace tag names of a station."""
         return self._tags(self._traces, station)
 
@@ -277,62 +285,56 @@ class SeisBP:
         with BytesIO(self._read(station, tag)) as b:
             return read_inventory(b)
 
-    def read_waveforms(self, station: str, tag: str = '') -> Stream:
-        """Read a stream of a station."""
-        traces: tp.List[Trace] = []
+    def read_traces(self, station: str, filt: str | None = None, tag: str = '') -> Stream:
+        """Get a stream of traces in a channel."""
+        traces = []
 
-        for cha in self.traces(station, None, tag):
-            for tr in self.read_traces(station, cha, tag=tag):
-                traces.append(tr)
-
-        if len(traces) == 0:
-            raise KeyError(f'{station} not found')
+        for trace_id in self.traces(station, filt, tag):
+            traces.append(self.read_trace(trace_id, tag=tag))
 
         return Stream(traces)
 
     @tp.overload
-    def read_traces(self, station: str, filt: str | None = None, mode: tp.Literal['trace'] = 'trace', tag: str = '') -> Stream: ...
+    def read_trace(self, trace_id: str, header_only: tp.Literal[True] = True, tag: str = '') -> Stats: ...
 
     @tp.overload
-    def read_traces(self, station: str, filt: str | None = None, mode: tp.Literal['data'] = 'data', tag: str = '') -> tp.List[np.ndarray]: ...
+    def read_trace(self, trace_id: str, header_only: tp.Literal[False] = False, tag: str = '') -> Trace: ...
 
-    @tp.overload
-    def read_traces(self, station: str, filt: str | None = None, mode: tp.Literal['params'] = 'params', tag: str = '') -> tp.List[dict]: ...
-
-    def read_traces(self, station: str, filt: str | None = None, mode: tp.Literal['data', 'params', 'trace'] = 'trace', tag: str = '') -> Stream | tp.List[np.ndarray] | tp.List[dict]:
-        """Read stream or data of a station channel."""
+    def read_trace(self, trace_id: str, header_only: bool = False, tag: str = '') -> Trace | Stats:
+        """Read a trace from its ID."""
         from obspy import UTCDateTime
+        from obspy.core.trace import Stats
 
-        traces = []
+        # dict containing starttime and sampling_rate
+        stats_dict = self._read_params(trace_id, tag)
+        stats_dict['starttime'] = UTCDateTime(float(stats_dict['starttime'] / 1.0e9))
 
-        for cha in self.traces(station, filt, tag):
-            for s, sr in self._traces[tag][station][cha]:
-                trace_id = f'{station}.{cha}_{s}_{sr}'
+        # dict containing station code
+        net, sta, loc, cha, _ = trace_id.split('.')
+        sta_dict = {'network': net, 'station': sta, 'location': loc, 'channel': cha}
 
-                if mode == 'params':
-                    # read trace parameters
-                    traces.append(self._read_params(trace_id, tag))
-                
-                else:
-                    # read trace data and stats
-                    data = self._read(trace_id, tag)
+        # trace stats
+        stats = Stats(stats_dict | sta_dict)
 
-                    if mode == 'trace':
-                        stats = {'starttime': UTCDateTime(float(s)), 'sampling_rate': float(sr)}
-                        traces.append(Trace(data, stats))
-                    
-                    else:
-                        traces.append(data)
+        if header_only:
+            return stats
 
-        return Stream(traces) if mode == 'trace' else traces
-    
-    def read_trace_params(self, trace: Trace, tag: str = '') -> dict:
-        """Read the parameters of a trace."""
-        return self._read_params(self._trace_id(trace), tag)
+        return Trace(self._read(trace_id, tag), stats)
 
-    def read_auxiliary(self, key: str, tag: str = '') -> tp.Tuple[np.ndarray, dict]:
+    @tp.overload
+    def read_auxiliary(self, key: str, header_only: tp.Literal[True] = True, tag: str = '') -> dict: ...
+
+    @tp.overload
+    def read_auxiliary(self, key: str, header_only: tp.Literal[False] = False, tag: str = '') -> tp.Tuple[np.ndarray, dict]: ...
+
+    def read_auxiliary(self, key: str, header_only: bool = False, tag: str = '') -> tp.Tuple[np.ndarray, dict] | dict:
         """Read auxiliary data and parameters."""
-        return self._read('$' + key, tag), self._read_params('$' + key, tag)
+        params = self._read_params('$' + key, tag)
+
+        if header_only:
+            return params
+
+        return self._read('$' + key, tag), params
 
     def close(self):
         """Close file."""
@@ -436,8 +438,11 @@ class SeisBP:
 
         return [key]
 
-    def _trace_id(self, trace: Trace) -> str:
+    def _write_trace(self, trace: Trace | Stats, tag: str = '') -> str:
+        """Write trace parameters."""
+        trace_id = self.trace_id(trace)
         stats = trace.stats
-        s = stats.starttime.timestamp
-        sr = stats.sampling_rate
-        return f'{stats.network}.{stats.station}.{stats.location}.{stats.channel}_{s}_{sr}'
+        self._write(trace_id, trace.data, tag)
+        self._write_params(trace_id, {'starttime': stats.starttime.ns, 'sampling_rate': stats.sampling_rate, 'npts': stats.npts}, tag)
+
+        return self.trace_id(trace)

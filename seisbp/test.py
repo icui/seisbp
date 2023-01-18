@@ -25,7 +25,6 @@ def test_write():
 
         bp.write(tr)
         bp.write(tr_tag_b, 'tag_b')
-        bp.write_trace_params(tr[0], {'trace_par': 'abc'})
 
         # write auxiliary data
         bp.write_auxiliary('aux', tr[0].data)
@@ -40,16 +39,16 @@ def test_read():
         # read indexing
         assert bp.events() == bp.events('tag_a') == {'C201107191935A'}
         assert bp.stations() == bp.stations('tag_c') == {'AZ.FRD'}
-        assert bp.waveforms() == bp.waveforms('tag_b') == {'AZ.FRD'}
-        assert bp.traces('AZ.FRD') == {'.BHZ'}
-        assert bp.traces('AZ.FRD', tag='tag_b') == {'S3.BHZ'}
+        assert bp.stations_with_trace() == bp.stations_with_trace('tag_b') == {'AZ.FRD'}
+        assert bp.channels('AZ.FRD') == {'.BHZ'}
+        assert bp.channels('AZ.FRD', tag='tag_b') == {'S3.BHZ'}
         assert bp.auxiliaries() == {'aux', 'aux2'}
         assert bp.auxiliaries('tag_d') == {'aux3'}
 
         # read tags
         assert bp.event_tags('C201107191935A') == {'', 'tag_a'}
         assert bp.station_tags('AZ.FRD') == {'', 'tag_c'}
-        assert bp.waveform_tags('AZ.FRD') == {'', 'tag_b'}
+        assert bp.trace_tags('AZ.FRD') == {'', 'tag_b'}
         assert bp.auxiliary_tags('aux') == {''}
         assert bp.auxiliary_tags('aux3') == {'tag_d'}
 
@@ -64,26 +63,22 @@ def test_read():
         # read trace data
         tr = read('AZ.GRD.BHZ.sac')
         tr_tag_b = read('AZ.GRD.BHZ.tag_b.sac')
+        trace_id = bp.traces('AZ.FRD').pop()
 
-        assert bp.traces('AZ.FRD') == {'.BHZ'}
         assert bp.components('AZ.FRD') == {'Z'}
-        assert bp.read_traces('AZ.FRD', '.BHZ')[0].stats.endtime == bp.read_waveforms('AZ.FRD')[0].stats.endtime
+        assert bp.read_traces('AZ.FRD', '.BHZ')[0].stats.endtime == bp.read_traces('AZ.FRD')[0].stats.endtime == bp.read_trace(trace_id, True).endtime
         assert all(bp.read_traces('AZ.FRD')[0].data == tr[0].data)
-        assert all(bp.read_traces('AZ.FRD', mode='data')[0] == tr[0].data)
-        assert bp.read_traces('AZ.FRD', mode='params')[0] == bp.read_trace_params(tr[0]) == {'trace_par': 'abc'}
-        assert bp.read_traces('AZ.FRD', mode='params', tag='tag_b') == [{}]
-        assert bp.read_trace_params(tr[0], tag='tag_b') == {}
-        assert all(bp.read_traces('AZ.FRD', None, tag='tag_b')[0].data == tr_tag_b[0].data)
+        assert all(bp.read_traces('AZ.FRD', tag='tag_b')[0].data == tr_tag_b[0].data)
         assert all(bp.read_traces('AZ.FRD', 'Z', tag='tag_b')[0].data == tr_tag_b[0].data)
         assert all(bp.read_traces('AZ.FRD', 'S3.BHZ', tag='tag_b')[0].data == tr_tag_b[0].data)
-        assert all(bp.read_traces('AZ.FRD', 'BHZ', 'trace', 'tag_b')[0].data == tr_tag_b[0].data)
+        assert all(bp.read_traces('AZ.FRD', 'BHZ', 'tag_b')[0].data == tr_tag_b[0].data)
 
         # read auxiliary data
         assert all(bp.read_auxiliary('aux')[0] == tr[0].data)
         assert bp.read_auxiliary('aux2')[1] == {'param_a': 'a'}
 
-        assert all(bp.read_auxiliary('aux3', 'tag_d')[0] == tr_tag_b[0].data)
-        assert bp.read_auxiliary('aux3', 'tag_d')[1] == {'param_b': True}
+        assert all(bp.read_auxiliary('aux3', tag='tag_d')[0] == tr_tag_b[0].data)
+        assert bp.read_auxiliary('aux3', tag='tag_d')[1] == bp.read_auxiliary('aux3', True, tag='tag_d') == {'param_b': True}
 
         print('test complete')
 
