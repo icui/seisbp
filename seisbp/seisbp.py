@@ -11,7 +11,6 @@ if tp.TYPE_CHECKING:
     from adios2 import File # type: ignore
     from mpi4py.MPI import Intracomm
     from obspy.core.trace import Stats
-    from obspy.core.util import AttribDict
 
 
 class SeisBP:
@@ -285,7 +284,7 @@ class SeisBP:
         with BytesIO(self._read(station, tag)) as b:
             return read_inventory(b)
 
-    def read_traces(self, station: str, filt: str | None = None, tag: str = '') -> Stream:
+    def read_stream(self, station: str, filt: str | None = None, tag: str = '') -> Stream:
         """Get a stream of traces in a channel."""
         traces = []
 
