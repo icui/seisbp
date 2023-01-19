@@ -242,9 +242,9 @@ class SeisBP:
         self._read_mode()
         return set(self._auxiliaries.get(tag) or [])
 
-    def trace_id(self, trace: Trace) -> str:
+    def trace_id(self, trace: Trace | Stats) -> str:
         """Get the ID of a trace."""
-        stats = trace.stats
+        stats = trace.stats if isinstance(trace, Trace) else trace
         channel_id = f'{stats.network}.{stats.station}.{stats.location}.{stats.channel}'
 
         # start and endtime in microseconds
@@ -294,15 +294,18 @@ class SeisBP:
         return Stream(traces)
 
     @tp.overload
-    def read_trace(self, trace_id: str, header_only: tp.Literal[True] = True, tag: str = '') -> Stats: ...
+    def read_trace(self, trace_id: str | Stats, header_only: tp.Literal[True] = True, tag: str = '') -> Stats: ...
 
     @tp.overload
-    def read_trace(self, trace_id: str, header_only: tp.Literal[False] = False, tag: str = '') -> Trace: ...
+    def read_trace(self, trace_id: str | Stats, header_only: tp.Literal[False] = False, tag: str = '') -> Trace: ...
 
-    def read_trace(self, trace_id: str, header_only: bool = False, tag: str = '') -> Trace | Stats:
+    def read_trace(self, trace_id: str | Stats, header_only: bool = False, tag: str = '') -> Trace | Stats:
         """Read a trace from its ID."""
         from obspy import UTCDateTime
         from obspy.core.trace import Stats
+
+        if isinstance(trace_id, Stats):
+            trace_id = self.trace_id(trace_id)
 
         # dict containing starttime and sampling_rate
         stats_dict = self._read_params(trace_id, tag)
@@ -437,7 +440,7 @@ class SeisBP:
 
         return [key]
 
-    def _write_trace(self, trace: Trace | Stats, tag: str = '') -> str:
+    def _write_trace(self, trace: Trace, tag: str = '') -> str:
         """Write trace parameters."""
         trace_id = self.trace_id(trace)
         stats = trace.stats
