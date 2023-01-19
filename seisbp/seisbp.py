@@ -128,8 +128,7 @@ class SeisBP:
 
     def write(self, item: Stream | Trace | Catalog | Event | Inventory, tag: str = '') -> str | tp.List[str]:
         """Write seismic auxiliary data."""
-        if self._mode not in ('w', 'a'):
-            raise PermissionError('file not opened in write or append mode')
+        self._write_mode()
 
         if isinstance(item, (Stream, Catalog)):
             keys = []
@@ -152,6 +151,8 @@ class SeisBP:
 
     def write_auxiliary(self, key: str, item: tp.Tuple[np.ndarray, dict] | dict | np.ndarray, tag: str = '') -> str:
         """Write auxiliary data and/or parameters."""
+        self._write_mode()
+
         if '#' in key:
             raise KeyError('`#` is not allowed in auxiliary key')
 
@@ -294,7 +295,7 @@ class SeisBP:
         return Stream(traces)
 
     @tp.overload
-    def read_trace(self, trace_id: str | Stats, header_only: tp.Literal[True] = True, tag: str = '') -> Stats: ...
+    def read_trace(self, trace_id: str, header_only: tp.Literal[True] = True, tag: str = '') -> Stats: ...
 
     @tp.overload
     def read_trace(self, trace_id: str | Stats, header_only: tp.Literal[False] = False, tag: str = '') -> Trace: ...
@@ -347,6 +348,10 @@ class SeisBP:
     def _read_mode(self):
         if self._mode != 'r':
             raise PermissionError('file not opened in read mode')
+
+    def _write_mode(self):
+        if self._mode not in ('w', 'a'):
+            raise PermissionError('file not opened in write mode')
     
     def _tags(self, target: tp.Dict[str, tp.Any], item: str | None) -> tp.Set[str]:
         self._read_mode()
@@ -441,7 +446,6 @@ class SeisBP:
         return [key]
 
     def _write_trace(self, trace: Trace, tag: str = '') -> str:
-        """Write trace parameters."""
         trace_id = self.trace_id(trace)
         stats = trace.stats
         self._write(trace_id, trace.data, tag)
