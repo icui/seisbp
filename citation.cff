@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+authors:
+- family-names: "Cui"
+  given-names: "Congyue"
+- family-names: "Jeroen"
+  given-names: "Tromp"
+title: "seisbp"
+version: 0.0.1
+date-released: 2023-02-15
+url: "https://github.com/icui/seisbp"
