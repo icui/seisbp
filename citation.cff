@@ -4,7 +4,7 @@ authors:
   given-names: "Congyue"
 - family-names: "Jeroen"
   given-names: "Tromp"
-title: "seisbp"
+title: "Seisbp, a simple library to read and write seismic data"
 version: 0.0.1
 date-released: 2023-02-15
 url: "https://github.com/icui/seisbp"
