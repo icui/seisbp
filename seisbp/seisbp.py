@@ -121,12 +121,12 @@ class SeisBP:
         return False
 
     @tp.overload
-    def write(self, item: Stream | Catalog | Inventory, *, tag: str = '') -> tp.List[str]: ...
+    def add(self, item: Stream | Catalog | Inventory, *, tag: str = '') -> tp.List[str]: ...
 
     @tp.overload
-    def write(self, item: Trace | Event, *, tag: str = '') -> str: ...
+    def add(self, item: Trace | Event, *, tag: str = '') -> str: ...
 
-    def write(self, item: Stream | Trace | Catalog | Event | Inventory, *, tag: str = '') -> str | tp.List[str]:
+    def add(self, item: Stream | Trace | Catalog | Event | Inventory, *, tag: str = '') -> str | tp.List[str]:
         """Write seismic auxiliary data."""
         self._write_mode()
 
@@ -134,7 +134,7 @@ class SeisBP:
             keys = []
 
             for it in item: # type: ignore
-                keys.append(self.write(it, tag=tag))
+                keys.append(self.add(it, tag=tag))
 
             return keys
 
@@ -149,7 +149,7 @@ class SeisBP:
 
         raise TypeError(f'unsupported item {item}')
 
-    def write_auxiliary(self, key: str, item: tp.Tuple[np.ndarray, dict] | dict | np.ndarray, *, tag: str = '') -> str:
+    def add_auxiliary(self, key: str, item: tp.Tuple[np.ndarray, dict] | dict | np.ndarray, *, tag: str = '') -> str:
         """Write auxiliary data and/or parameters."""
         self._write_mode()
 
