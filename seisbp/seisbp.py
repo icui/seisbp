@@ -127,7 +127,7 @@ class SeisBP:
     def add(self, item: Trace | Event, *, tag: str = '') -> str: ...
 
     def add(self, item: Stream | Trace | Catalog | Event | Inventory, *, tag: str = '') -> str | tp.List[str]:
-        """Write seismic auxiliary data."""
+        """Write seismic data."""
         self._write_mode()
 
         if isinstance(item, (Stream, Catalog)):
