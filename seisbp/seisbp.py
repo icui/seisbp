@@ -121,12 +121,12 @@ class SeisBP:
         return False
 
     @tp.overload
-    def write(self, item: Stream | Catalog | Inventory, tag: str = '') -> tp.List[str]: ...
+    def write(self, item: Stream | Catalog | Inventory, *, tag: str = '') -> tp.List[str]: ...
 
     @tp.overload
-    def write(self, item: Trace | Event, tag: str = '') -> str: ...
+    def write(self, item: Trace | Event, *, tag: str = '') -> str: ...
 
-    def write(self, item: Stream | Trace | Catalog | Event | Inventory, tag: str = '') -> str | tp.List[str]:
+    def write(self, item: Stream | Trace | Catalog | Event | Inventory, *, tag: str = '') -> str | tp.List[str]:
         """Write seismic auxiliary data."""
         self._write_mode()
 
@@ -134,7 +134,7 @@ class SeisBP:
             keys = []
 
             for it in item: # type: ignore
-                keys.append(self.write(it, tag))
+                keys.append(self.write(it, tag=tag))
 
             return keys
 
@@ -149,7 +149,7 @@ class SeisBP:
 
         raise TypeError(f'unsupported item {item}')
 
-    def write_auxiliary(self, key: str, item: tp.Tuple[np.ndarray, dict] | dict | np.ndarray, tag: str = '') -> str:
+    def write_auxiliary(self, key: str, item: tp.Tuple[np.ndarray, dict] | dict | np.ndarray, *, tag: str = '') -> str:
         """Write auxiliary data and/or parameters."""
         self._write_mode()
 
@@ -184,12 +184,12 @@ class SeisBP:
 
         return key
 
-    def event_ids(self, tag: str = '') -> tp.Set[str]:
+    def event_ids(self, *, tag: str = '') -> tp.Set[str]:
         """Get names of events."""
         self._read_mode()
         return set(self._events.get(tag) or [])
 
-    def station_ids(self, has_meta: bool | None = True, has_trace: bool | None = True, tag: str = '') -> tp.Set[str]:
+    def station_ids(self, has_meta: bool | None = True, has_trace: bool | None = True, *, tag: str = '') -> tp.Set[str]:
         """Get names of stations with StationXML and/or traces."""
         self._read_mode()
 
@@ -213,7 +213,7 @@ class SeisBP:
         
         return set()
 
-    def trace_ids(self, station: str, filt: str | None = None, tag: str = '') -> tp.Set[str]:
+    def trace_ids(self, station: str, filt: str | None = None, *, tag: str = '') -> tp.Set[str]:
         """Get IDs all traces in a station or channel."""
         self._read_mode()
 
@@ -242,16 +242,16 @@ class SeisBP:
 
         return traces
 
-    def channels(self, station: str, tag: str = '') -> tp.Set[str]:
+    def channels(self, station: str, *, tag: str = '') -> tp.Set[str]:
         """Get channels of a station."""
         self._read_mode()
         return set(((self._traces.get(tag) or {}).get(station) or {}).keys())
 
-    def components(self, station: str, tag: str = '') -> tp.Set[str]:
+    def components(self, station: str, *, tag: str = '') -> tp.Set[str]:
         """Get components of a station."""
-        return {cha[-1] for cha in self.channels(station, tag)}
+        return {cha[-1] for cha in self.channels(station, tag=tag)}
 
-    def auxiliary_ids(self, tag: str = '') -> tp.Set[str]:
+    def auxiliary_ids(self, *, tag: str = '') -> tp.Set[str]:
         """Get auxiliary data keys."""
         self._read_mode()
         return set(self._auxiliaries.get(tag) or [])
@@ -284,36 +284,36 @@ class SeisBP:
         """Get tag names of auxiliary data."""
         return self._tags(self._auxiliaries, key)
 
-    def read_event(self, event: str, tag: str = '') -> Event:
+    def read_event(self, event: str, *, tag: str = '') -> Event:
         """Read an event."""
         from obspy import read_events
 
         with BytesIO(self._read(event, tag)) as b:
             return read_events(b, format='quakeml')[0]
 
-    def read_station(self, station: str, tag: str = '') -> Inventory:
+    def read_station(self, station: str, *, tag: str = '') -> Inventory:
         """Read a station."""
         from obspy import read_inventory
 
         with BytesIO(self._read(station, tag)) as b:
             return read_inventory(b)
 
-    def read_stream(self, station: str, filt: str | None = None, tag: str = '') -> Stream:
+    def read_stream(self, station: str, filt: str | None = None, *, tag: str = '') -> Stream:
         """Get a stream of traces in a channel."""
         traces = []
 
-        for trace_id in self.trace_ids(station, filt, tag):
+        for trace_id in self.trace_ids(station, filt, tag=tag):
             traces.append(self.read_trace(trace_id, tag=tag))
 
         return Stream(traces)
 
     @tp.overload
-    def read_trace(self, trace_id: str, header_only: tp.Literal[True] = True, tag: str = '') -> Stats: ...
+    def read_trace(self, trace_id: str, header_only: tp.Literal[True] = True, *, tag: str = '') -> Stats: ...
 
     @tp.overload
-    def read_trace(self, trace_id: str | Stats, header_only: tp.Literal[False] = False, tag: str = '') -> Trace: ...
+    def read_trace(self, trace_id: str | Stats, header_only: tp.Literal[False] = False, *, tag: str = '') -> Trace: ...
 
-    def read_trace(self, trace_id: str | Stats, header_only: bool = False, tag: str = '') -> Trace | Stats:
+    def read_trace(self, trace_id: str | Stats, header_only: bool = False, *, tag: str = '') -> Trace | Stats:
         """Read a trace from its ID."""
         from obspy import UTCDateTime
         from obspy.core.trace import Stats
@@ -338,12 +338,12 @@ class SeisBP:
         return Trace(self._read(trace_id, tag), stats)
 
     @tp.overload
-    def read_auxiliary(self, key: str, header_only: tp.Literal[True] = True, tag: str = '') -> dict: ...
+    def read_auxiliary(self, key: str, header_only: tp.Literal[True] = True, *, tag: str = '') -> dict: ...
 
     @tp.overload
-    def read_auxiliary(self, key: str, header_only: tp.Literal[False] = False, tag: str = '') -> tp.Tuple[np.ndarray, dict]: ...
+    def read_auxiliary(self, key: str, header_only: tp.Literal[False] = False, *, tag: str = '') -> tp.Tuple[np.ndarray, dict]: ...
 
-    def read_auxiliary(self, key: str, header_only: bool = False, tag: str = '') -> tp.Tuple[np.ndarray, dict] | dict:
+    def read_auxiliary(self, key: str, header_only: bool = False, *, tag: str = '') -> tp.Tuple[np.ndarray, dict] | dict:
         """Read auxiliary data and parameters."""
         params = self._read_params('$' + key, tag)
 
