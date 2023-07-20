@@ -184,24 +184,37 @@ class SeisBP:
 
         return key
 
-    def events(self, tag: str = '') -> tp.Set[str]:
+    def event_ids(self, tag: str = '') -> tp.Set[str]:
         """Get names of events."""
         self._read_mode()
         return set(self._events.get(tag) or [])
 
-    def stations(self, tag: str = '') -> tp.Set[str]:
-        """Get names of stations with StationXML."""
-        # stations with StationXML
+    def station_ids(self, has_meta: bool | None = True, has_trace: bool | None = True, tag: str = '') -> tp.Set[str]:
+        """Get names of stations with StationXML and/or traces."""
         self._read_mode()
-        return set(self._stations.get(tag) or [])
 
-    def stations_with_trace(self, tag: str = '') -> tp.Set[str]:
-        """Get names of stations with trace data."""
-        self._read_mode()
-        return set((self._traces.get(tag) or {}).keys())
+        meta_set = lambda: set(self._stations.get(tag) or [])
+        trace_set = lambda: set((self._traces.get(tag) or {}).keys())
 
-    def traces(self, station: str, filt: str | None = None, tag: str = '') -> tp.Set[str]:
-        """Get trace IDs in a station or channel."""
+        if has_meta and has_trace:
+            return meta_set().intersection(trace_set())
+
+        if has_meta:
+            if has_trace is False:
+                return meta_set().difference(trace_set())
+
+            return meta_set()
+        
+        if has_trace:
+            if has_meta is False:
+                return trace_set().difference(meta_set())
+
+            return trace_set()
+        
+        return set()
+
+    def trace_ids(self, station: str, filt: str | None = None, tag: str = '') -> tp.Set[str]:
+        """Get IDs all traces in a station or channel."""
         self._read_mode()
 
         traces = set()
@@ -238,7 +251,7 @@ class SeisBP:
         """Get components of a station."""
         return {cha[-1] for cha in self.channels(station, tag)}
 
-    def auxiliaries(self, tag: str = '') -> tp.Set[str]:
+    def auxiliary_ids(self, tag: str = '') -> tp.Set[str]:
         """Get auxiliary data keys."""
         self._read_mode()
         return set(self._auxiliaries.get(tag) or [])
@@ -289,7 +302,7 @@ class SeisBP:
         """Get a stream of traces in a channel."""
         traces = []
 
-        for trace_id in self.traces(station, filt, tag):
+        for trace_id in self.trace_ids(station, filt, tag):
             traces.append(self.read_trace(trace_id, tag=tag))
 
         return Stream(traces)
