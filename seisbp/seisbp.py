@@ -228,13 +228,13 @@ class SeisBP:
         self._read_mode()
         return set((self._traces.get(tag) or {}).keys())
 
-    def trace_ids(self, station: str, filt: str | None = None, *, tag: str = '') -> Set[str]:
+    def trace_ids(self, station_id: str, filt: str | None = None, *, tag: str = '') -> Set[str]:
         """Get IDs all traces in a station or channel."""
         self._read_mode()
 
-        traces = set()
+        trace_ids = set()
 
-        for cha, tss in ((self._traces.get(tag) or {}).get(station) or {}).items():
+        for cha, tss in ((self._traces.get(tag) or {}).get(station_id) or {}).items():
             if filt is not None:
                 # skip traces without matching channel
                 if len(filt) == 1:
@@ -253,9 +253,9 @@ class SeisBP:
                         continue
             
             for ts in tss:
-                traces.add(f'{station}.{cha}.{ts}')
+                trace_ids.add(f'{station_id}.{cha}.{ts}')
 
-        return traces
+        return trace_ids
 
     def trace_id(self, trace: Trace | Stats) -> str:
         """Get the ID of a trace."""
@@ -274,61 +274,61 @@ class SeisBP:
         self._read_mode()
         return set(self._auxiliaries.get(tag) or [])
 
-    def channels(self, station: str, *, tag: str = '') -> Set[str]:
+    def channels(self, station_id: str, *, tag: str = '') -> Set[str]:
         """Get channels of a station."""
         self._read_mode()
-        return set(((self._traces.get(tag) or {}).get(station) or {}).keys())
+        return set(((self._traces.get(tag) or {}).get(station_id) or {}).keys())
 
-    def components(self, station: str, *, tag: str = '') -> Set[str]:
+    def components(self, station_id: str, *, tag: str = '') -> Set[str]:
         """Get components of a station."""
-        return {cha[-1] for cha in self.channels(station, tag=tag)}
+        return {cha[-1] for cha in self.channels(station_id, tag=tag)}
 
-    def event_tags(self, event: str | None = None) -> Set[str]:
+    def event_tags(self, event_id: str | None = None) -> Set[str]:
         """Get tag names of an event."""
-        return self._tags(self._events, event)
+        return self._tags(self._events, event_id)
 
-    def station_tags(self, station: str | None = None):
+    def station_tags(self, station_id: str | None = None):
         """Get StationXML tag names of a station."""
-        return self._tags(self._stations, station)
+        return self._tags(self._stations, station_id)
 
-    def trace_tags(self, station: str) -> Set[str]:
+    def trace_tags(self, station_id: str) -> Set[str]:
         """Get trace tag names of a station."""
-        return self._tags(self._traces, station)
+        return self._tags(self._traces, station_id)
 
     def auxiliary_tags(self, key: str):
         """Get tag names of auxiliary data."""
         return self._tags(self._auxiliaries, key)
 
-    def read_event(self, event: str, *, tag: str = '') -> Event:
+    def event(self, event_id: str, *, tag: str = '') -> Event:
         """Read an event."""
         from obspy import read_events
 
-        with BytesIO(self._read(event, tag)) as b:
+        with BytesIO(self._read(event_id, tag)) as b:
             return read_events(b, format='quakeml')[0]
 
-    def read_station(self, station: str, *, tag: str = '') -> Inventory:
+    def station(self, station_id: str, *, tag: str = '') -> Inventory:
         """Read a station."""
         from obspy import read_inventory
 
-        with BytesIO(self._read(station, tag)) as b:
+        with BytesIO(self._read(station_id, tag)) as b:
             return read_inventory(b)
 
-    def read_stream(self, station: str, filt: str | None = None, *, tag: str = '') -> Stream:
+    def stream(self, station_id: str, filt: str | None = None, *, tag: str = '') -> Stream:
         """Get a stream of traces in a channel."""
         traces = []
 
-        for trace_id in self.trace_ids(station, filt, tag=tag):
-            traces.append(self.read_trace(trace_id, tag=tag))
+        for trace_id in self.trace_ids(station_id, filt, tag=tag):
+            traces.append(self.trace(trace_id, tag=tag))
 
         return Stream(traces)
 
     @overload
-    def read_trace(self, trace_id: str, header_only: Literal[True] = True, *, tag: str = '') -> Stats: ...
+    def trace(self, trace_id: str, header_only: Literal[True] = True, *, tag: str = '') -> Stats: ...
 
     @overload
-    def read_trace(self, trace_id: str | Stats, header_only: Literal[False] = False, *, tag: str = '') -> Trace: ...
+    def trace(self, trace_id: str | Stats, header_only: Literal[False] = False, *, tag: str = '') -> Trace: ...
 
-    def read_trace(self, trace_id: str | Stats, header_only: bool = False, *, tag: str = '') -> Trace | Stats:
+    def trace(self, trace_id: str | Stats, header_only: bool = False, *, tag: str = '') -> Trace | Stats:
         """Read a trace from its ID."""
         from obspy import UTCDateTime
         from obspy.core.trace import Stats
@@ -353,12 +353,12 @@ class SeisBP:
         return Trace(self._read(trace_id, tag), stats)
 
     @overload
-    def read_auxiliary(self, key: str, header_only: Literal[True] = True, *, tag: str = '') -> dict: ...
+    def auxiliary(self, key: str, header_only: Literal[True] = True, *, tag: str = '') -> dict: ...
 
     @overload
-    def read_auxiliary(self, key: str, header_only: Literal[False] = False, *, tag: str = '') -> Tuple[np.ndarray, dict]: ...
+    def auxiliary(self, key: str, header_only: Literal[False] = False, *, tag: str = '') -> Tuple[np.ndarray, dict]: ...
 
-    def read_auxiliary(self, key: str, header_only: bool = False, *, tag: str = '') -> Tuple[np.ndarray, dict] | dict:
+    def auxiliary(self, key: str, header_only: bool = False, *, tag: str = '') -> Tuple[np.ndarray, dict] | dict:
         """Read auxiliary data and parameters."""
         params = self._read_params('$' + key, tag)
 
