@@ -218,29 +218,15 @@ class SeisBP:
         self._read_mode()
         return set(self._events.get(tag) or [])
 
-    def station_ids(self, has_meta: bool | None = True, has_trace: bool | None = True, *, tag: str = '') -> Set[str]:
-        """Get names of stations with StationXML and/or traces."""
+    def station_ids(self, *, tag: str = '') -> Set[str]:
+        """Get names of stations with StationXML."""
         self._read_mode()
+        return set(self._stations.get(tag) or [])
 
-        meta_set = lambda: set(self._stations.get(tag) or [])
-        trace_set = lambda: set((self._traces.get(tag) or {}).keys())
-
-        if has_meta and has_trace:
-            return meta_set().intersection(trace_set())
-
-        if has_meta:
-            if has_trace is False:
-                return meta_set().difference(trace_set())
-
-            return meta_set()
-        
-        if has_trace:
-            if has_meta is False:
-                return trace_set().difference(meta_set())
-
-            return trace_set()
-        
-        return set()
+    def trace_station_ids(self, *, tag: str = '') -> Set[str]:
+        """Get names of stations with traces."""
+        self._read_mode()
+        return set((self._traces.get(tag) or {}).keys())
 
     def trace_ids(self, station: str, filt: str | None = None, *, tag: str = '') -> Set[str]:
         """Get IDs all traces in a station or channel."""
@@ -271,20 +257,6 @@ class SeisBP:
 
         return traces
 
-    def channels(self, station: str, *, tag: str = '') -> Set[str]:
-        """Get channels of a station."""
-        self._read_mode()
-        return set(((self._traces.get(tag) or {}).get(station) or {}).keys())
-
-    def components(self, station: str, *, tag: str = '') -> Set[str]:
-        """Get components of a station."""
-        return {cha[-1] for cha in self.channels(station, tag=tag)}
-
-    def auxiliary_ids(self, *, tag: str = '') -> Set[str]:
-        """Get auxiliary data keys."""
-        self._read_mode()
-        return set(self._auxiliaries.get(tag) or [])
-
     def trace_id(self, trace: Trace | Stats) -> str:
         """Get the ID of a trace."""
         stats = trace.stats if isinstance(trace, Trace) else trace
@@ -296,6 +268,20 @@ class SeisBP:
         e = int(round(stats.endtime.ns / 1000))
 
         return  f'{channel_id}.{s}_{e}'
+
+    def auxiliary_ids(self, *, tag: str = '') -> Set[str]:
+        """Get auxiliary data keys."""
+        self._read_mode()
+        return set(self._auxiliaries.get(tag) or [])
+
+    def channels(self, station: str, *, tag: str = '') -> Set[str]:
+        """Get channels of a station."""
+        self._read_mode()
+        return set(((self._traces.get(tag) or {}).get(station) or {}).keys())
+
+    def components(self, station: str, *, tag: str = '') -> Set[str]:
+        """Get components of a station."""
+        return {cha[-1] for cha in self.channels(station, tag=tag)}
 
     def event_tags(self, event: str | None = None) -> Set[str]:
         """Get tag names of an event."""
