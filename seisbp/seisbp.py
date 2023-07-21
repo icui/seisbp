@@ -1,5 +1,5 @@
 from __future__ import annotations
-import typing as tp
+from typing import TYPE_CHECKING, Literal, List, Tuple, Set, Dict, overload
 import adios2, json
 from io import BytesIO
 
@@ -7,7 +7,7 @@ import numpy as np
 from obspy import Stream, Trace, Catalog, Inventory
 from obspy.core.event import Event
 
-if tp.TYPE_CHECKING:
+if TYPE_CHECKING:
     from adios2 import File # type: ignore
     from mpi4py.MPI import Intracomm
     from obspy.core.trace import Stats
@@ -16,7 +16,7 @@ if tp.TYPE_CHECKING:
 class SeisBP:
     """Seismic data saved in adios2 binary pack format."""
     # file open mode
-    _mode: tp.Literal['r', 'w', 'a']
+    _mode: Literal['r', 'w', 'a']
 
     # adios2 binary pack file
     _bp: File
@@ -28,24 +28,24 @@ class SeisBP:
     _buffer_size: float = 1024.0
 
     # dict of tag -> event names
-    _events: tp.Dict[str, tp.Set[str]]
+    _events: Dict[str, Set[str]]
 
     # dict of tag -> station names
-    _stations: tp.Dict[str, tp.Set[str]]
+    _stations: Dict[str, Set[str]]
 
     # dict of tag -> trace stations -> trace location and channel -> trace start and end time
-    _traces: tp.Dict[str, tp.Dict[str, tp.Dict[str, tp.Set[str]]]]
+    _traces: Dict[str, Dict[str, Dict[str, Set[str]]]]
 
     # dict of tag -> auxiliary data keys
-    _auxiliaries: tp.Dict[str, tp.Set[str]]
+    _auxiliaries: Dict[str, Set[str]]
 
     # MPI communicator
-    _comm: tp.Optional[Intracomm] = None
+    _comm: Intracomm | None = None
 
     # file closed
     _closed = False
 
-    def __init__(self, name: str, mode: tp.Literal['r', 'w', 'a'], comm: Intracomm | bool = False):
+    def __init__(self, name: str, mode: Literal['r', 'w', 'a'], comm: Intracomm | bool = False):
         if comm == True:
             from mpi4py.MPI import COMM_WORLD
             comm = COMM_WORLD
@@ -120,13 +120,13 @@ class SeisBP:
         self.close()
         return False
 
-    @tp.overload
-    def add(self, item: Stream | Catalog | Inventory, *, tag: str = '') -> tp.List[str]: ...
+    @overload
+    def add(self, item: Stream | Catalog | Inventory, *, tag: str = '') -> List[str]: ...
 
-    @tp.overload
+    @overload
     def add(self, item: Trace | Event, *, tag: str = '') -> str: ...
 
-    def add(self, item: Stream | Trace | Catalog | Event | Inventory, *, tag: str = '') -> str | tp.List[str]:
+    def add(self, item: Stream | Trace | Catalog | Event | Inventory, *, tag: str = '') -> str | List[str]:
         """Write seismic data."""
         self._write_mode()
 
@@ -149,7 +149,16 @@ class SeisBP:
 
         raise TypeError(f'unsupported item {item}')
 
-    def add_auxiliary(self, key: str, item: tp.Tuple[np.ndarray, dict] | dict | np.ndarray, *, tag: str = '') -> str:
+    def add_events(self):
+        pass
+
+    def add_stations(self):
+        pass
+
+    def add_traces(self):
+        pass
+
+    def add_auxiliary(self, key: str, item: Tuple[np.ndarray, dict] | dict | np.ndarray, *, tag: str = '') -> str:
         """Write auxiliary data and/or parameters."""
         self._write_mode()
 
@@ -184,12 +193,12 @@ class SeisBP:
 
         return key
 
-    def event_ids(self, *, tag: str = '') -> tp.Set[str]:
+    def event_ids(self, *, tag: str = '') -> Set[str]:
         """Get names of events."""
         self._read_mode()
         return set(self._events.get(tag) or [])
 
-    def station_ids(self, has_meta: bool | None = True, has_trace: bool | None = True, *, tag: str = '') -> tp.Set[str]:
+    def station_ids(self, has_meta: bool | None = True, has_trace: bool | None = True, *, tag: str = '') -> Set[str]:
         """Get names of stations with StationXML and/or traces."""
         self._read_mode()
 
@@ -213,7 +222,7 @@ class SeisBP:
         
         return set()
 
-    def trace_ids(self, station: str, filt: str | None = None, *, tag: str = '') -> tp.Set[str]:
+    def trace_ids(self, station: str, filt: str | None = None, *, tag: str = '') -> Set[str]:
         """Get IDs all traces in a station or channel."""
         self._read_mode()
 
@@ -242,16 +251,16 @@ class SeisBP:
 
         return traces
 
-    def channels(self, station: str, *, tag: str = '') -> tp.Set[str]:
+    def channels(self, station: str, *, tag: str = '') -> Set[str]:
         """Get channels of a station."""
         self._read_mode()
         return set(((self._traces.get(tag) or {}).get(station) or {}).keys())
 
-    def components(self, station: str, *, tag: str = '') -> tp.Set[str]:
+    def components(self, station: str, *, tag: str = '') -> Set[str]:
         """Get components of a station."""
         return {cha[-1] for cha in self.channels(station, tag=tag)}
 
-    def auxiliary_ids(self, *, tag: str = '') -> tp.Set[str]:
+    def auxiliary_ids(self, *, tag: str = '') -> Set[str]:
         """Get auxiliary data keys."""
         self._read_mode()
         return set(self._auxiliaries.get(tag) or [])
@@ -268,7 +277,7 @@ class SeisBP:
 
         return  f'{channel_id}.{s}_{e}'
 
-    def event_tags(self, event: str | None = None) -> tp.Set[str]:
+    def event_tags(self, event: str | None = None) -> Set[str]:
         """Get tag names of an event."""
         return self._tags(self._events, event)
 
@@ -276,7 +285,7 @@ class SeisBP:
         """Get StationXML tag names of a station."""
         return self._tags(self._stations, station)
 
-    def trace_tags(self, station: str) -> tp.Set[str]:
+    def trace_tags(self, station: str) -> Set[str]:
         """Get trace tag names of a station."""
         return self._tags(self._traces, station)
 
@@ -307,11 +316,11 @@ class SeisBP:
 
         return Stream(traces)
 
-    @tp.overload
-    def read_trace(self, trace_id: str, header_only: tp.Literal[True] = True, *, tag: str = '') -> Stats: ...
+    @overload
+    def read_trace(self, trace_id: str, header_only: Literal[True] = True, *, tag: str = '') -> Stats: ...
 
-    @tp.overload
-    def read_trace(self, trace_id: str | Stats, header_only: tp.Literal[False] = False, *, tag: str = '') -> Trace: ...
+    @overload
+    def read_trace(self, trace_id: str | Stats, header_only: Literal[False] = False, *, tag: str = '') -> Trace: ...
 
     def read_trace(self, trace_id: str | Stats, header_only: bool = False, *, tag: str = '') -> Trace | Stats:
         """Read a trace from its ID."""
@@ -337,13 +346,13 @@ class SeisBP:
 
         return Trace(self._read(trace_id, tag), stats)
 
-    @tp.overload
-    def read_auxiliary(self, key: str, header_only: tp.Literal[True] = True, *, tag: str = '') -> dict: ...
+    @overload
+    def read_auxiliary(self, key: str, header_only: Literal[True] = True, *, tag: str = '') -> dict: ...
 
-    @tp.overload
-    def read_auxiliary(self, key: str, header_only: tp.Literal[False] = False, *, tag: str = '') -> tp.Tuple[np.ndarray, dict]: ...
+    @overload
+    def read_auxiliary(self, key: str, header_only: Literal[False] = False, *, tag: str = '') -> Tuple[np.ndarray, dict]: ...
 
-    def read_auxiliary(self, key: str, header_only: bool = False, *, tag: str = '') -> tp.Tuple[np.ndarray, dict] | dict:
+    def read_auxiliary(self, key: str, header_only: bool = False, *, tag: str = '') -> Tuple[np.ndarray, dict] | dict:
         """Read auxiliary data and parameters."""
         params = self._read_params('$' + key, tag)
 
@@ -366,7 +375,7 @@ class SeisBP:
         if self._mode not in ('w', 'a'):
             raise PermissionError('file not opened in write mode')
     
-    def _tags(self, target: tp.Dict[str, tp.Any], item: str | None) -> tp.Set[str]:
+    def _tags(self, target: Dict, item: str | None) -> Set[str]:
         self._read_mode()
 
         if item is None:
@@ -395,7 +404,6 @@ class SeisBP:
 
         if tag:
             key += '#' + tag
-
 
         return json.loads((self._bp.read_attribute_string('params', key) or ['{}'])[0])
 
@@ -438,7 +446,7 @@ class SeisBP:
         
         return key
 
-    def _write_station(self, item: Inventory, tag: str) -> tp.List[str]:
+    def _write_station(self, item: Inventory, tag: str) -> List[str]:
         if len(item.networks) != 1 or len(item.networks[0].stations) != 1:
             # Inventory with multiple stations
             keys = []
