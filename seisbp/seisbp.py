@@ -1,7 +1,8 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Literal, List, Tuple, Set, Dict, overload
+from typing import TYPE_CHECKING, Literal, List, Tuple, Set, Dict, Iterable, overload
 import adios2, json
 from io import BytesIO
+from collections.abc import Iterable as _Iterable
 
 import numpy as np
 from obspy import Stream, Trace, Catalog, Inventory
@@ -120,17 +121,10 @@ class SeisBP:
         self.close()
         return False
 
-    def add(self, item: Stream | Trace | Catalog | Event | Inventory, *, tag: str = '') -> List[str]:
+    def add(self, item: Stream | Trace | Catalog | Event | Inventory |
+            Iterable[Stream | Trace | Catalog | Event | Inventory], *, tag: str = '') -> List[str]:
         """Write seismic data."""
         self._write_mode()
-
-        if isinstance(item, (Stream, Catalog)):
-            keys = []
-
-            for it in item: # type: ignore
-                keys.append(self.add(it, tag=tag))
-
-            return keys
 
         if isinstance(item, Event):
             return [self._write_event(item, tag)]
@@ -140,17 +134,40 @@ class SeisBP:
 
         if isinstance(item, Trace):
             return [self._write_trace(item, tag)]
+        
+        if isinstance(item, _Iterable):
+            keys = []
+
+            for it in item: # type: ignore
+                keys += self.add(it, tag=tag)
+
+            return keys
 
         raise TypeError(f'unsupported item {item}')
 
-    def add_events(self):
-        pass
+    def add_events(self, events: Catalog | Event | str, *, tag: str = ''):
+        if isinstance(events, str):
+            from obspy import read_events
 
-    def add_stations(self):
-        pass
+            return self.add(read_events(events), tag=tag)
 
-    def add_traces(self):
-        pass
+        return self.add(events, tag=tag)
+
+    def add_stations(self, stations: Inventory | str, *, tag: str = ''):
+        if isinstance(stations, str):
+            from obspy import read_inventory
+
+            return self.add(read_inventory(stations), tag=tag)
+
+        return self.add(stations, tag=tag)
+
+    def add_traces(self, traces: Stream | Trace | str, *, tag: str = ''):
+        if isinstance(traces, str):
+            from obspy import read
+
+            return self.add(read(traces), tag=tag)
+
+        return self.add(traces, tag=tag)
 
     def add_auxiliary(self, key: str, item: Tuple[np.ndarray, dict] | dict | np.ndarray, *, tag: str = '') -> str:
         """Write auxiliary data and/or parameters."""
