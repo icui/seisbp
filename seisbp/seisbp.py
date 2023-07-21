@@ -120,13 +120,7 @@ class SeisBP:
         self.close()
         return False
 
-    @overload
-    def add(self, item: Stream | Catalog | Inventory, *, tag: str = '') -> List[str]: ...
-
-    @overload
-    def add(self, item: Trace | Event, *, tag: str = '') -> str: ...
-
-    def add(self, item: Stream | Trace | Catalog | Event | Inventory, *, tag: str = '') -> str | List[str]:
+    def add(self, item: Stream | Trace | Catalog | Event | Inventory, *, tag: str = '') -> List[str]:
         """Write seismic data."""
         self._write_mode()
 
@@ -139,13 +133,13 @@ class SeisBP:
             return keys
 
         if isinstance(item, Event):
-            return self._write_event(item, tag)
+            return [self._write_event(item, tag)]
 
         if isinstance(item, Inventory):
             return self._write_station(item, tag)
 
         if isinstance(item, Trace):
-            return self._write_trace(item, tag)
+            return [self._write_trace(item, tag)]
 
         raise TypeError(f'unsupported item {item}')
 
