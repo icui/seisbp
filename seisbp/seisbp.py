@@ -150,8 +150,11 @@ class SeisBP:
             from obspy import read_events
 
             return self.add(read_events(events), tag=tag)
+        
+        if isinstance(events, (Event, Catalog)):
+            return self.add(events, tag=tag)
 
-        return self.add(events, tag=tag)
+        raise TypeError(f'unsupported event format {events}')
 
     def add_stations(self, stations: Inventory | str, *, tag: str = ''):
         if isinstance(stations, str):
@@ -159,7 +162,10 @@ class SeisBP:
 
             return self.add(read_inventory(stations), tag=tag)
 
-        return self.add(stations, tag=tag)
+        if isinstance(stations, Inventory):
+            return self.add(stations, tag=tag)
+
+        raise TypeError(f'unsupported station format {stations}')
 
     def add_traces(self, traces: Stream | Trace | str, *, tag: str = ''):
         if isinstance(traces, str):
@@ -167,7 +173,10 @@ class SeisBP:
 
             return self.add(read(traces), tag=tag)
 
-        return self.add(traces, tag=tag)
+        if isinstance(traces, (Trace, Stream)):
+            return self.add(traces, tag=tag)
+
+        raise TypeError(f'unsupported trace format {traces}')
 
     def add_auxiliary(self, key: str, item: Tuple[np.ndarray, dict] | dict | np.ndarray, *, tag: str = '') -> str:
         """Write auxiliary data and/or parameters."""
