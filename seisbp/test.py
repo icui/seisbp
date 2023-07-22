@@ -38,8 +38,8 @@ def test_read():
     with SeisBP('test.bp', 'r') as bp:
         # read indexing
         assert bp.event_ids() == bp.event_ids(tag='tag_a') == {'C201107191935A'}
-        assert bp.station_ids(has_trace=None) == bp.station_ids(has_trace=None, tag='tag_c') == {'AZ.FRD'}
-        assert bp.station_ids(has_meta=None) == bp.station_ids(has_meta=None, tag='tag_b') == {'AZ.FRD'}
+        assert bp.station_ids() == bp.station_ids(tag='tag_c') == {'AZ.FRD'}
+        assert bp.trace_station_ids() == bp.trace_station_ids(tag='tag_b') == {'AZ.FRD'}
         assert bp.channels('AZ.FRD') == {'.BHZ'}
         assert bp.channels('AZ.FRD', tag='tag_b') == {'S3.BHZ'}
         assert bp.auxiliary_ids() == {'aux', 'aux2'}
@@ -53,12 +53,12 @@ def test_read():
         assert bp.auxiliary_tags('aux3') == {'tag_d'}
 
         # read event data
-        assert bp.read_event('C201107191935A') == read_events('C201107191935A')[0]
-        assert bp.read_event('C201107191935A', tag='tag_a') == read_events('C201107191935A.tag_a')[0]
+        assert bp.event('C201107191935A') == read_events('C201107191935A')[0]
+        assert bp.event('C201107191935A', tag='tag_a') == read_events('C201107191935A.tag_a')[0]
 
         # read station data
-        assert bp.read_station('AZ.FRD') == read_inventory('AZ.FRD.xml')
-        assert bp.read_station('AZ.FRD', tag='tag_c') == read_inventory('AZ.FRD.tag_c.xml')
+        assert bp.station('AZ.FRD') == read_inventory('AZ.FRD.xml')
+        assert bp.station('AZ.FRD', tag='tag_c') == read_inventory('AZ.FRD.tag_c.xml')
 
         # read trace data
         tr = read('AZ.GRD.BHZ.sac')
@@ -66,19 +66,19 @@ def test_read():
         trace_id = bp.trace_ids('AZ.FRD').pop()
 
         assert bp.components('AZ.FRD') == {'Z'}
-        assert bp.read_stream('AZ.FRD', '.BHZ')[0].stats.endtime == bp.read_stream('AZ.FRD')[0].stats.endtime == bp.read_trace(trace_id, True).endtime
-        assert all(bp.read_stream('AZ.FRD')[0].data == tr[0].data)
-        assert all(bp.read_stream('AZ.FRD', tag='tag_b')[0].data == tr_tag_b[0].data)
-        assert all(bp.read_stream('AZ.FRD', 'Z', tag='tag_b')[0].data == tr_tag_b[0].data)
-        assert all(bp.read_stream('AZ.FRD', 'S3.BHZ', tag='tag_b')[0].data == tr_tag_b[0].data)
-        assert all(bp.read_stream('AZ.FRD', 'BHZ', tag='tag_b')[0].data == tr_tag_b[0].data)
+        assert bp.stream('AZ.FRD', '.BHZ')[0].stats.endtime == bp.stream('AZ.FRD')[0].stats.endtime == bp.trace_header(trace_id).endtime
+        assert all(bp.stream('AZ.FRD')[0].data == tr[0].data)
+        assert all(bp.stream('AZ.FRD', tag='tag_b')[0].data == tr_tag_b[0].data)
+        assert all(bp.stream('AZ.FRD', 'Z', tag='tag_b')[0].data == tr_tag_b[0].data)
+        assert all(bp.stream('AZ.FRD', 'S3.BHZ', tag='tag_b')[0].data == tr_tag_b[0].data)
+        assert all(bp.stream('AZ.FRD', 'BHZ', tag='tag_b')[0].data == tr_tag_b[0].data)
 
         # read auxiliary data
-        assert all(bp.read_auxiliary('aux')[0] == tr[0].data)
-        assert bp.read_auxiliary('aux2')[1] == {'param_a': 'a'}
+        assert all(bp.auxiliary('aux')[0] == tr[0].data)
+        assert bp.auxiliary('aux2')[1] == {'param_a': 'a'}
 
-        assert all(bp.read_auxiliary('aux3', tag='tag_d')[0] == tr_tag_b[0].data)
-        assert bp.read_auxiliary('aux3', tag='tag_d')[1] == bp.read_auxiliary('aux3', True, tag='tag_d') == {'param_b': True}
+        assert all(bp.auxiliary('aux3', tag='tag_d')[0] == tr_tag_b[0].data)
+        assert bp.auxiliary('aux3', tag='tag_d')[1] == bp.auxiliary_header('aux3', tag='tag_d') == {'param_b': True}
 
         print('test complete')
 

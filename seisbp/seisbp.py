@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Literal, List, Tuple, Set, Dict, Iterable, overload
+from typing import TYPE_CHECKING, Literal, List, Tuple, Set, Dict, Iterable
 import adios2, json
 from io import BytesIO
 from collections.abc import Iterable as _Iterable
@@ -7,11 +7,11 @@ from collections.abc import Iterable as _Iterable
 import numpy as np
 from obspy import Stream, Trace, Catalog, Inventory
 from obspy.core.event import Event
+from obspy.core.trace import Stats
 
 if TYPE_CHECKING:
     from adios2 import File # type: ignore
     from mpi4py.MPI import Intracomm
-    from obspy.core.trace import Stats
 
 
 class SeisBP:
@@ -134,7 +134,7 @@ class SeisBP:
 
         if isinstance(item, Trace):
             return [self._write_trace(item, tag)]
-        
+
         if isinstance(item, _Iterable):
             keys = []
 
@@ -203,7 +203,7 @@ class SeisBP:
         elif isinstance(item, dict):
             # item contains parameters only
             params = item
-        
+
         else:
             raise TypeError(f'unsupported item {item}')
 
@@ -322,19 +322,12 @@ class SeisBP:
 
         return Stream(traces)
 
-    @overload
-    def trace(self, trace_id: str, header_only: Literal[True] = True, *, tag: str = '') -> Stats: ...
+    def trace(self, trace_id: str | Stats, *, tag: str = '') -> Trace:
+        return Trace(self.trace_data(trace_id, tag=tag), self.trace_header(trace_id, tag=tag))
 
-    @overload
-    def trace(self, trace_id: str | Stats, header_only: Literal[False] = False, *, tag: str = '') -> Trace: ...
-
-    def trace(self, trace_id: str | Stats, header_only: bool = False, *, tag: str = '') -> Trace | Stats:
+    def trace_header(self, trace_id: str, *, tag: str = '') -> Stats:
         """Read a trace from its ID."""
         from obspy import UTCDateTime
-        from obspy.core.trace import Stats
-
-        if isinstance(trace_id, Stats):
-            trace_id = self.trace_id(trace_id)
 
         # dict containing starttime and sampling_rate
         stats_dict = self._read_params(trace_id, tag)
@@ -342,30 +335,27 @@ class SeisBP:
 
         # dict containing station code
         net, sta, loc, cha, _ = trace_id.split('.')
-        sta_dict = {'network': net, 'station': sta, 'location': loc, 'channel': cha}
+        stats_dict.update({'network': net, 'station': sta, 'location': loc, 'channel': cha})
 
-        # trace stats
-        stats = Stats(stats_dict | sta_dict)
+        return Stats(stats_dict)
 
-        if header_only:
-            return stats
+    def trace_data(self, trace_id: str | Stats, *, tag: str = '') -> np.ndarray:
+        if isinstance(trace_id, Stats):
+            trace_id = self.trace_id(trace_id)
 
-        return Trace(self._read(trace_id, tag), stats)
+        return self._read(trace_id, tag)
 
-    @overload
-    def auxiliary(self, key: str, header_only: Literal[True] = True, *, tag: str = '') -> dict: ...
-
-    @overload
-    def auxiliary(self, key: str, header_only: Literal[False] = False, *, tag: str = '') -> Tuple[np.ndarray, dict]: ...
-
-    def auxiliary(self, key: str, header_only: bool = False, *, tag: str = '') -> Tuple[np.ndarray, dict] | dict:
+    def auxiliary(self, key: str, *, tag: str = '') -> Tuple[np.ndarray, dict]:
         """Read auxiliary data and parameters."""
-        params = self._read_params('$' + key, tag)
+        return self.auxiliary_data(key, tag=tag), self.auxiliary_header(key, tag=tag)
 
-        if header_only:
-            return params
+    def auxiliary_header(self, key: str, *, tag: str = '') -> dict:
+        """Read auxiliary data and parameters."""
+        return self._read_params('$' + key, tag)
 
-        return self._read('$' + key, tag), params
+    def auxiliary_data(self, key: str, *, tag: str = '') -> np.ndarray:
+        """Read auxiliary data and parameters."""
+        return self._read('$' + key, tag)
 
     def close(self):
         """Close file."""
