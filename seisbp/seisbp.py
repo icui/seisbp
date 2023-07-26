@@ -123,7 +123,7 @@ class SeisBP:
 
     def add(self, item: Stream | Trace | Catalog | Event | Inventory |
             Iterable[Stream | Trace | Catalog | Event | Inventory], *, tag: str = '') -> List[str]:
-        """Write seismic data."""
+        """Add seismic data."""
         self._write_mode()
 
         if isinstance(item, Event):
@@ -146,6 +146,7 @@ class SeisBP:
         raise TypeError(f'unsupported item {item}')
 
     def add_events(self, events: Catalog | Event | str, *, tag: str = ''):
+        """Add event(s) from obspy object or file path."""
         if isinstance(events, str):
             from obspy import read_events
 
@@ -157,6 +158,7 @@ class SeisBP:
         raise TypeError(f'unsupported event format {events}')
 
     def add_stations(self, stations: Inventory | str, *, tag: str = ''):
+        """Add station(s) from obspy object or file path."""
         if isinstance(stations, str):
             from obspy import read_inventory
 
@@ -168,6 +170,7 @@ class SeisBP:
         raise TypeError(f'unsupported station format {stations}')
 
     def add_traces(self, traces: Stream | Trace | str, *, tag: str = ''):
+        """Add trace(s) from obspy object or file path."""
         if isinstance(traces, str):
             from obspy import read
 
@@ -241,17 +244,17 @@ class SeisBP:
                     # filt is component code
                     if cha[-1] != filt:
                         continue
-                
+
                 elif '.' in filt:
                     # filt is f'{location}.{channel}'
                     if cha != filt:
                         continue
-                
+
                 else:
                     # filt is channel code
                     if cha.split('.')[-1] != filt:
                         continue
-            
+
             for ts in tss:
                 trace_ids.add(f'{station_id}.{cha}.{ts}')
 
@@ -313,14 +316,13 @@ class SeisBP:
         with BytesIO(self._read(station_id, tag)) as b:
             return read_inventory(b)
 
+    def traces(self, station_id: str, filt: str | None = None, *, tag: str = '') -> List[Trace]:
+        """Get a list of traces in a station."""
+        return [self.trace(trace_id, tag=tag) for trace_id in self.trace_ids(station_id, filt, tag=tag)]
+    
     def stream(self, station_id: str, filt: str | None = None, *, tag: str = '') -> Stream:
-        """Get a stream of traces in a channel."""
-        traces = []
-
-        for trace_id in self.trace_ids(station_id, filt, tag=tag):
-            traces.append(self.trace(trace_id, tag=tag))
-
-        return Stream(traces)
+        """Get a stream of traces in a station."""
+        return Stream(self.traces(station_id, filt, tag=tag))
 
     def trace(self, trace_id: str | Stats, *, tag: str = '') -> Trace:
         return Trace(self.trace_data(trace_id, tag=tag), self.trace_header(trace_id, tag=tag))

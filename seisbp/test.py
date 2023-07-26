@@ -66,12 +66,12 @@ def test_read():
         trace_id = bp.trace_ids('AZ.FRD').pop()
 
         assert bp.components('AZ.FRD') == {'Z'}
-        assert bp.stream('AZ.FRD', '.BHZ')[0].stats.endtime == bp.stream('AZ.FRD')[0].stats.endtime == bp.trace_header(trace_id).endtime
-        assert all(bp.stream('AZ.FRD')[0].data == tr[0].data)
-        assert all(bp.stream('AZ.FRD', tag='tag_b')[0].data == tr_tag_b[0].data)
-        assert all(bp.stream('AZ.FRD', 'Z', tag='tag_b')[0].data == tr_tag_b[0].data)
-        assert all(bp.stream('AZ.FRD', 'S3.BHZ', tag='tag_b')[0].data == tr_tag_b[0].data)
-        assert all(bp.stream('AZ.FRD', 'BHZ', tag='tag_b')[0].data == tr_tag_b[0].data)
+        assert bp.traces('AZ.FRD', '.BHZ')[0].stats.endtime == bp.traces('AZ.FRD')[0].stats.endtime == bp.trace_header(trace_id).endtime
+        assert all(bp.traces('AZ.FRD')[0].data == tr[0].data)
+        assert all(bp.traces('AZ.FRD', tag='tag_b')[0].data == tr_tag_b[0].data)
+        assert all(bp.traces('AZ.FRD', 'Z', tag='tag_b')[0].data == tr_tag_b[0].data)
+        assert all(bp.traces('AZ.FRD', 'S3.BHZ', tag='tag_b')[0].data == tr_tag_b[0].data)
+        assert all(bp.traces('AZ.FRD', 'BHZ', tag='tag_b')[0].data == tr_tag_b[0].data)
 
         # read auxiliary data
         assert all(bp.auxiliary('aux')[0] == tr[0].data)
